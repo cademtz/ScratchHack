@@ -144,11 +144,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\json.cpp" />
+    <ClCompile Include="src\loader.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\scratch\scratchtree.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\json.h" />
+    <ClInclude Include="src\loader.h" />
     <ClInclude Include="src\scratch\scratchblocks.h" />
     <ClInclude Include="src\scratch\scratchopcodes.h" />
     <ClInclude Include="src\scratch\scratchtree.h" />

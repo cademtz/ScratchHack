@@ -27,6 +27,7 @@ public:
 	ScratchTree() { }
 
 	inline const std::vector<ScratchTarget>& Targets() const { return m_targets; }
+	inline std::vector<ScratchTarget>& Targets() { return m_targets; }
 
 private:
 	std::vector<ScratchTarget> m_targets;
@@ -35,7 +36,9 @@ private:
 class ScratchTarget
 {
 public:
+	ScratchTarget() {}
 	ScratchTarget(const char* Name, bool IsStage) : m_name(Name), m_isStage(IsStage) { }
+	~ScratchTarget() { for (auto block : m_blocks) delete block; }
 
 	inline bool IsStage() const { return m_isStage; }
 	inline const std::string Name() const { return m_name; }
@@ -43,7 +46,7 @@ public:
 	inline std::vector<ScratchList>& Lists() { return m_lists; }
 
 private:
-	bool m_isStage;
+	bool m_isStage = false;
 	std::string m_name;
 	std::vector<ScratchVar> m_vars;
 	std::vector<ScratchList> m_lists;
@@ -56,8 +59,8 @@ public:
 	ScratchValue() : m_value("0"), m_number(0), m_types(ScratchType_Number) { }
 
 	inline bool IsType(EScratchType Type) const { return m_types & Type; }
-	inline bool GetBool() { IsType(ScratchType_Bool) && m_number == 1; }
-	inline double GetNumber() { return IsType(ScratchType_Number) ? m_number : 0; }
+	inline bool GetBool() const { IsType(ScratchType_Bool) && m_number == 1; }
+	inline double GetNumber() const { return IsType(ScratchType_Number) ? m_number : 0; }
 	inline const std::string& GetString() const { return m_value; }
 
 	void Set(const char* Value);
