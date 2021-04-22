@@ -23,9 +23,6 @@ inline jsmntok_t* Json_Next(jsmntok_t* Pos)
 }
 
 inline bool Json_IsPair(jsmntok_t* Pair) { return Pair->type == JSMN_STRING && Pair->size == 1; }
-inline jsmntok_t* Json_Pair_Next(jsmntok_t* Pos) {
-	return Json_IsPair(Pos) ? Json_Next(Json_Next(Pos)) : 0; // Trololololo
-}
 inline jsmntok_t* Json_Pair_Value(jsmntok_t* Pos) {
 	return Json_IsPair(Pos) ? Pos + 1 : 0;
 }

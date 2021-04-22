@@ -41,7 +41,7 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	Tree.Targets().emplace_back(name_val.c_str(), isStage_val);
 	target = &Tree.Targets().back();
 
-	for (int i = 0; i < blockmap->size; ++i, pair = Json_Pair_Next(pair))
+	for (int i = 0; i < blockmap->size; ++i, pair = Json_Next(pair))
 	{
 		block_val = Loader_LoadBlock(Json, pair, *target);
 		if (!block_val)
@@ -59,6 +59,8 @@ ScratchBlock* Loader_LoadBlock(const char* Json, jsmntok_t* JSNBlockPair, Scratc
 	jsmntok_t* key = JSNBlockPair, * block, * opcode;
 	ScratchBlock* block_val;
 	
+	const char* start = Json + key->start;
+
 	if (!(block = Json_Pair_Value(JSNBlockPair)) ||
 		!(opcode = Json_Find(Json, block, "opcode")))
 		return 0;
