@@ -5,6 +5,19 @@
 #include <stdlib.h>
 #include <errno.h>
 
+jsmntok_t* Json_GetIndex(jsmntok_t* ObjOrArr, int Index)
+{
+	assert((ObjOrArr->type == JSMN_OBJECT || ObjOrArr->type == JSMN_ARRAY) &&
+			"Expected JSON object or array");
+
+	if (Index >= ObjOrArr->size)
+		return 0;
+
+	jsmntok_t* next = ObjOrArr + 1;
+	for (int i = 0; i < Index; ++i, next = Json_Next(next));
+    return next;
+}
+
 jsmntok_t* Json_Find(const char* Json, jsmntok_t* Obj, const char* Name)
 {
 	assert(Obj->type == JSMN_OBJECT && "Expected JSON object");
@@ -15,7 +28,7 @@ jsmntok_t* Json_Find(const char* Json, jsmntok_t* Obj, const char* Name)
 		if (!strncmp(Json + next->start, Name, Json_Strlen(next)))
 			return next + 1; // Return value from key:value pair
 	}
-	return nullptr;
+	return 0;
 }
 
 bool Json_GetBool(const char* Json, jsmntok_t* Val, bool* out_Bool)

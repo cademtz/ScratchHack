@@ -3,7 +3,9 @@
 #include <atlbase.h>
 #include <string>
 #include "json.h"
-#include "loader.h";
+#include "loader.h"
+#include "scratch/scratchopcodes.h"
+#include "scratch/scratchblocks.h"
 
 #pragma comment(lib, "Urlmon.lib")
 
@@ -45,6 +47,25 @@ int main()
 
 	ScratchTree tree;
 	printf("Loader status: %d\n", (int)Loader_LoadProject(json.c_str(), Tokens, tree));
+
+	ScratchValue val;
+	for (auto& target : tree.Targets())
+	{
+		printf("Target \"%s\":\n", target.Name().c_str());
+		for (auto& chain : target.Chains())
+		{
+			printf("\tExecuting chain %s:\n", ScratchOpcode_ToString((int)chain.front()->Opcode()));
+
+			for (ScratchBlock* block : chain)
+			{
+				printf("\t\t");
+				block->Execute(val);
+				putchar('\n');
+			}
+			putchar('\n');
+		}
+		putchar('\n');
+	}
 
 	CoUninitialize();
 

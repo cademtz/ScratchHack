@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <list>
 #include <string>
 #include <vector>
@@ -6,6 +7,7 @@
 
 #define _SCRATCH_INTBYTE(val, idx) (uint8_t)(((int32_t)val << (idx * 8)) & 0xFF)
 
+class ScratchChain;
 class ScratchTarget;
 class ScratchBlock;
 class ScratchList;
@@ -26,11 +28,11 @@ class ScratchTree
 public:
 	ScratchTree() { }
 
-	inline const std::vector<ScratchTarget>& Targets() const { return m_targets; }
-	inline std::vector<ScratchTarget>& Targets() { return m_targets; }
+	inline const std::list<ScratchTarget>& Targets() const { return m_targets; }
+	inline std::list<ScratchTarget>& Targets() { return m_targets; }
 
 private:
-	std::vector<ScratchTarget> m_targets;
+	std::list<ScratchTarget> m_targets;
 };
 
 class ScratchTarget
@@ -38,33 +40,42 @@ class ScratchTarget
 public:
 	ScratchTarget() {}
 	ScratchTarget(const char* Name, bool IsStage) : m_name(Name), m_isStage(IsStage) { }
-	~ScratchTarget() { for (auto block : m_blocks) delete block; }
 
 	inline bool IsStage() const { return m_isStage; }
 	inline const std::string Name() const { return m_name; }
 	inline std::vector<ScratchVar>& Vars() { return m_vars; }
 	inline std::vector<ScratchList>& Lists() { return m_lists; }
+	inline std::list<ScratchChain>& Chains() { return m_chains; }
 
 private:
 	bool m_isStage = false;
 	std::string m_name;
 	std::vector<ScratchVar> m_vars;
 	std::vector<ScratchList> m_lists;
-	std::vector<ScratchBlock*> m_blocks;
+	std::list<ScratchChain> m_chains;
+};
+
+class ScratchChain : public std::list<ScratchBlock*>
+{
+public:
+	~ScratchChain();
 };
 
 class ScratchValue
 {
 public:
 	ScratchValue() : m_value("0"), m_number(0), m_types(ScratchType_Number) { }
+	ScratchValue(const char* Value) { Set(Value); }
 
-	inline bool IsType(EScratchType Type) const { return m_types & Type; }
+	inline bool IsType(int Types) const { return m_types & Types; }
+	inline int GetTypes() const { return m_types; }
 	inline bool GetBool() const { IsType(ScratchType_Bool) && m_number == 1; }
 	inline double GetNumber() const { return IsType(ScratchType_Number) ? m_number : 0; }
 	inline const std::string& GetString() const { return m_value; }
 
 	void Set(const char* Value);
-	inline void Set(double Value);
+	void Set(bool Value);
+	void Set(double Value);
 	inline void Set(const std::string& Value) { Set(Value.c_str()); }
 
 private:
@@ -97,4 +108,20 @@ public:
 private:
 	std::string m_name;
 	std::list<ScratchValue> m_values;
+};
+
+class ScratchInputs
+{
+public:
+	ScratchInputs() { }
+	~ScratchInputs() { Cleanup(); }
+
+	ScratchBlock* GetSlot(const char* Slot);
+	inline void SetSlot(const char* Slot, ScratchBlock* Block) { m_slots[Slot] = Block; }
+	inline const std::map<std::string, ScratchBlock*>& Slots() const { return m_slots; }
+	inline void Clear() { Cleanup(), m_slots.clear(); }
+
+private:
+	void Cleanup();
+	std::map<std::string, ScratchBlock*> m_slots;
 };

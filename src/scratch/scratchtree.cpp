@@ -1,4 +1,6 @@
 #include "scratchtree.h"
+#include "scratchblocks.h"
+#include <assert.h>
 
 // muh cross-platform  *<:o)  honk honk
 int _Scratch_stricmp(const char* One, const char* Two)
@@ -6,6 +8,12 @@ int _Scratch_stricmp(const char* One, const char* Two)
 	char a = 0, b = 0;
 	for (; *One && *Two && (a = tolower(*One)) == (b = tolower(*Two)); ++One, ++Two);
 	return a - b;
+}
+
+ScratchChain::~ScratchChain()
+{
+	for (ScratchBlock* block : *this)
+		delete block;
 }
 
 void ScratchValue::Set(const char* Value)
@@ -35,9 +43,36 @@ void ScratchValue::Set(const char* Value)
 	m_types |= ScratchType_String; // Every type can be represented by a string
 }
 
-inline void ScratchValue::Set(double Value)
+ void ScratchValue::Set(bool Value)
+{
+	m_value = Value ? "true" : "false";
+	m_number = Value;
+	m_types = ScratchType_String | ScratchType_Bool;
+}
+
+void ScratchValue::Set(double Value)
 {
 	m_value = std::to_string(Value);
 	m_number = Value;
 	m_types = ScratchType_String | ScratchType_Number;
+}
+
+ScratchBlock* ScratchInputs::GetSlot(const char* Slot)
+{
+	ScratchBlock* block = 0;
+	auto it = m_slots.find(Slot);
+	assert(it != m_slots.end() && "Expected slot to exist");
+
+	if (it != m_slots.end())
+	{
+		block = (*it).second;
+		m_slots.erase(it);
+	}
+    return block;
+}
+
+void ScratchInputs::Cleanup()
+{
+	for (auto& pair : m_slots)
+		delete pair.second;
 }

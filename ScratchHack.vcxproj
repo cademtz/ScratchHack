@@ -146,6 +146,8 @@
     <ClCompile Include="src\json.cpp" />
     <ClCompile Include="src\loader.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\scratch\scratchblocks.cpp" />
+    <ClCompile Include="src\scratch\scratchopcodes.cpp" />
     <ClCompile Include="src\scratch\scratchtree.cpp" />
   </ItemGroup>
   <ItemGroup>

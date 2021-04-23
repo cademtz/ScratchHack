@@ -1,7 +1,13 @@
 #pragma once
 
+// - Returns a value from 'EScratchOpcode' or 0
+int ScratchOpcode_FromString(const char* Str, int Len = -1);
+const char* ScratchOpcode_ToString(int Opcode);
+
 enum EScratchOpcode
 {
+	ScratchOpcode_unknown,
+
 	event_whentouchingobject,
 	event_touchingobjectmenu,
 	event_whenflagclicked,
@@ -155,4 +161,15 @@ enum EScratchOpcode
 	sensing_dayssince2000,
 	sensing_username,
 	sensing_userid, // Obsolete, does nothing as of 3.0
+
+	sound_sounds_menu,
+	sound_play,
+	sound_playuntildone,
+	sound_stopallsounds,
+	sound_seteffectto,
+	sound_changeeffectby,
+	sound_cleareffects,
+	sound_changevolumeby,
+	sound_setvolumeto,
+	sound_volume,
 };
