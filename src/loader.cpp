@@ -3,7 +3,7 @@
 #include <map>
 #include "scratch/scratchblocks.h"
 
-#define LOADER_LOG(x, ...) //printf(x, __VA_ARGS__)
+#define LOADER_LOG(x, ...) printf(x, __VA_ARGS__)
 
 typedef std::map<std::string, jsmntok_t*> JsnBlockMap;
 
@@ -142,7 +142,7 @@ ScratchBlock* Loader_LoadBlock(
 		"inputs", &j_inputs))
 		return 0;
 
-	LOADER_LOG("\t%s", op.c_str());
+	LOADER_LOG("\t%s\n", op.c_str());
 
 	j_pair = Json_StartObject(j_inputs);
 	for (int i = 0; i < j_inputs->size; ++i, j_pair = Json_Next(j_pair))
@@ -171,7 +171,12 @@ ScratchBlock* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const J
 		if (it == Map.cend())
 			return 0;
 
-		return Loader_LoadBlock(Json, (*it).second, Map, Target);
+		if (ScratchBlock* block = Loader_LoadBlock(Json, (*it).second, Map, Target))
+		{
+			if (Loader_LoadChain(Json, (*it).second, Map, Target))
+				return block;
+		}
+		return 0; // parent block or its chain failed to load
 	}
 	else
 	{

@@ -48,7 +48,7 @@ int main()
 	ScratchTree tree;
 	printf("Loader status: %d\n", (int)Loader_LoadProject(json.c_str(), Tokens, tree));
 
-	ScratchValue val;
+	/*ScratchValue val;
 	for (auto& target : tree.Targets())
 	{
 		printf("Target \"%s\":\n", target.Name().c_str());
@@ -65,7 +65,7 @@ int main()
 			putchar('\n');
 		}
 		putchar('\n');
-	}
+	}*/
 
 	CoUninitialize();
 
