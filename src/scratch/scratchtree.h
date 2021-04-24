@@ -4,12 +4,14 @@
 #include <string>
 #include <vector>
 #include <stdint.h>
+#include "scratchopcodes.h"
 
 #define _SCRATCH_INTBYTE(val, idx) (uint8_t)(((int32_t)val << (idx * 8)) & 0xFF)
 
-class ScratchChain;
+class ScratchMethod;
 class ScratchTarget;
-class ScratchBlock;
+class ScratchChain;
+//class ScratchBlock;
 class ScratchList;
 class ScratchVar;
 
@@ -45,20 +47,14 @@ public:
 	inline const std::string Name() const { return m_name; }
 	inline std::vector<ScratchVar>& Vars() { return m_vars; }
 	inline std::vector<ScratchList>& Lists() { return m_lists; }
-	inline std::list<ScratchChain>& Chains() { return m_chains; }
+	inline std::vector<ScratchChain>& Chains() { return m_chains; }
 
 private:
 	bool m_isStage = false;
 	std::string m_name;
 	std::vector<ScratchVar> m_vars;
 	std::vector<ScratchList> m_lists;
-	std::list<ScratchChain> m_chains;
-};
-
-class ScratchChain : public std::list<ScratchBlock*>
-{
-public:
-	~ScratchChain();
+	std::vector<ScratchChain> m_chains;
 };
 
 class ScratchValue
@@ -69,13 +65,14 @@ public:
 
 	inline bool IsType(int Types) const { return m_types & Types; }
 	inline int GetTypes() const { return m_types; }
-	inline bool GetBool() const { IsType(ScratchType_Bool) && m_number == 1; }
+	inline bool GetBool() const { return IsType(ScratchType_Bool) && m_number == 1; }
 	inline double GetNumber() const { return IsType(ScratchType_Number) ? m_number : 0; }
 	inline const std::string& GetString() const { return m_value; }
 
 	void Set(const char* Value);
 	void Set(bool Value);
 	void Set(double Value);
+	void Set(int Value);
 	inline void Set(const std::string& Value) { Set(Value.c_str()); }
 
 private:
@@ -108,20 +105,4 @@ public:
 private:
 	std::string m_name;
 	std::list<ScratchValue> m_values;
-};
-
-class ScratchInputs
-{
-public:
-	ScratchInputs() { }
-	~ScratchInputs() { Cleanup(); }
-
-	ScratchBlock* GetSlot(const char* Slot);
-	inline void SetSlot(const char* Slot, ScratchBlock* Block) { m_slots[Slot] = Block; }
-	inline const std::map<std::string, ScratchBlock*>& Slots() const { return m_slots; }
-	inline void Clear() { Cleanup(), m_slots.clear(); }
-
-private:
-	void Cleanup();
-	std::map<std::string, ScratchBlock*> m_slots;
 };

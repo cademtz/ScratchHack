@@ -3,116 +3,74 @@
 #include "scratchopcodes.h"
 #include "scratchtree.h"
 
-class ScratchBlock
+class ScratchStack : private std::vector<ScratchValue>
 {
 public:
-	static ScratchBlock* FromOpcode(EScratchOpcode Opcode, ScratchInputs& Inputs);
+	inline void Push(const ScratchValue& Value) { push_back(Value); }
+	ScratchValue Pop();
+};
 
-	virtual void Execute(ScratchValue& Result) = 0;
-	inline EScratchOpcode Opcode() const { return m_opcode; }
-	inline std::vector<ScratchBlock*>& Children() { return m_children; }
+struct ScratchState
+{
+	ScratchValue ret;
+	ScratchStack stack;
+};
 
-	virtual ~ScratchBlock() { for (ScratchBlock* block : m_children) delete block; }
+class ScratchMethod
+{
+public:
+	virtual int Exec(ScratchState& State) = 0;
+};
 
-protected:
-	ScratchBlock(EScratchOpcode Opcode) : m_opcode(Opcode) { }
+class ScratchLiteral : public ScratchMethod
+{
+public:
+	ScratchLiteral(const ScratchValue& Value) :m_value(Value) {}
+	int Exec(ScratchState& State) override { State.ret = m_value; return 0; }
 
 private:
-	std::vector<ScratchBlock*> m_children;
-	const EScratchOpcode m_opcode;
+	const ScratchValue m_value;
 };
 
-class ScratchBlock_NotImplemented : public ScratchBlock
+// - Chain of scratch blocks to be executed
+class ScratchChain : public ScratchMethod
 {
 public:
-	ScratchBlock_NotImplemented(EScratchOpcode Opcode) : ScratchBlock(Opcode) { }
-	void Execute(ScratchValue& Result) override;
-};
+	ScratchChain() { }
 
-class ScratchBlock_Nop : public ScratchBlock
-{
-public:
-	ScratchBlock_Nop(EScratchOpcode Opcode) : ScratchBlock(Opcode) { }
-	void Execute(ScratchValue& Result) override {
-		Result.Set("<ScratchBlock_Nop>");
+	inline void AddOpcode(EScratchOpcode Op) {
+		m_ops.push_back(Op);
 	}
-};
+	inline void AddInput(ScratchMethod* Input) {
+		m_inputs.push_back(Input);
+	}
 
-class ScratchBlock_Literal : public ScratchBlock
-{
-public:
-	ScratchBlock_Literal(const ScratchValue& Value)
-		: ScratchBlock(ScratchOpcode_unknown), m_value(Value) { }
-	void Execute(ScratchValue& Result) override { Result = m_value; }
+	inline std::vector<EScratchOpcode>& Code() { return m_ops; }
 
-private:
-	ScratchValue m_value;
-};
-
-// Private interfaces
-class ScratchBinary : public ScratchBlock
-{
-protected:
-	ScratchBinary(ScratchInputs& Inputs, EScratchOpcode Op, const char* One, const char* Two);
-	~ScratchBinary() { delete m_one; delete m_two; }
-
-	inline ScratchBlock* One() { return m_one; }
-	inline ScratchBlock* Two() { return m_two; }
+	int Exec(ScratchState& State);
 
 private:
-	ScratchBlock* m_one, * m_two;
-};
-class ScratchUnary : public ScratchBlock
-{
-protected:
-	ScratchUnary(ScratchInputs& Inputs, EScratchOpcode Op, const char* In);
-	~ScratchUnary() { delete m_one; }
+	ScratchMethod* NextInput(size_t& InputCount);
+	inline void BinOpHack(ScratchState& State, size_t& InputCount, ScratchValue& First)
+	{
+		NextInput(InputCount)->Exec(State);
+		First = State.ret;
+		NextInput(InputCount)->Exec(State);
+	}
 
-	inline ScratchBlock* One() { return m_one; }
-
-private:
-	ScratchBlock* m_one;
+	std::vector<EScratchOpcode> m_ops;
+	std::vector<ScratchMethod*> m_inputs;
 };
 
-class ScratchOperator_Join : public ScratchBinary
+class Scratch_NotImplemented : public ScratchMethod
 {
 public:
-	ScratchOperator_Join(ScratchInputs& Inputs) :
-		ScratchBinary(Inputs, operator_join, "STRING1", "STRING2") { }
-	void Execute(ScratchValue& Result) override;
-};
+	Scratch_NotImplemented() { }
 
-class ScratchOperator_Equals : public ScratchBinary
-{
-public:
-	ScratchOperator_Equals(ScratchInputs& Inputs) :
-		ScratchBinary(Inputs, operator_equals, "OPERAND1", "OPERAND2") { }
-	void Execute(ScratchValue& Result) override;
-};
-
-class ScratchLooks_Say : public ScratchUnary
-{
-public:
-	ScratchLooks_Say(ScratchInputs& Inputs)
-		: ScratchUnary(Inputs, looks_say, "MESSAGE") { }
-	void Execute(ScratchValue& Result) override;
-};
-class ScratchLooks_SayForSecs : public ScratchBinary
-{
-public:
-	ScratchLooks_SayForSecs(ScratchInputs& Inputs)
-		: ScratchBinary(Inputs, looks_sayforsecs, "MESSAGE", "SECS") { }
-	void Execute(ScratchValue& Result) override;
-};
-
-class ScratchLooks_Think : public ScratchLooks_Say
-{
-public:
-	ScratchLooks_Think(ScratchInputs& Inputs) : ScratchLooks_Say(Inputs) { }
-};
-class ScratchLooks_ThinkForSecs : public ScratchLooks_SayForSecs
-{
-public:
-	ScratchLooks_ThinkForSecs(ScratchInputs& Inputs)
-		: ScratchLooks_SayForSecs(Inputs) { }
+	int Exec(ScratchState& State) override
+	{
+		printf("Scratch_NotImplemented\n");
+		State.ret.Set("<Not implemented>");
+		return 0;
+	}
 };

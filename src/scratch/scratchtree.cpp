@@ -10,11 +10,11 @@ int _Scratch_stricmp(const char* One, const char* Two)
 	return a - b;
 }
 
-ScratchChain::~ScratchChain()
+/*ScratchChain::~ScratchChain()
 {
 	for (ScratchBlock* block : *this)
 		delete block;
-}
+}*/
 
 void ScratchValue::Set(const char* Value)
 {
@@ -57,22 +57,9 @@ void ScratchValue::Set(double Value)
 	m_types = ScratchType_String | ScratchType_Number;
 }
 
-ScratchBlock* ScratchInputs::GetSlot(const char* Slot)
+void ScratchValue::Set(int Value)
 {
-	ScratchBlock* block = 0;
-	auto it = m_slots.find(Slot);
-	assert(it != m_slots.end() && "Expected slot to exist");
-
-	if (it != m_slots.end())
-	{
-		block = (*it).second;
-		m_slots.erase(it);
-	}
-    return block;
-}
-
-void ScratchInputs::Cleanup()
-{
-	for (auto& pair : m_slots)
-		delete pair.second;
+	m_value = std::to_string(Value);
+	m_number = Value;
+	m_types = ScratchType_String | ScratchType_Number;
 }

@@ -7,19 +7,21 @@
 
 typedef std::map<std::string, jsmntok_t*> JsnBlockMap;
 
-ScratchBlock* Loader_LoadBlock(
+EScratchOpcode Loader_LoadBlock(
 	const char* Json,
 	jsmntok_t* JSNBlock,
+	ScratchChain* Chain,
 	const JsnBlockMap& Map,
 	ScratchTarget& Target);
 
 bool Loader_LoadChain(
 	const char* Json,
 	jsmntok_t* JSNBlock,
+	ScratchChain* Chain,
 	const JsnBlockMap& Map,
 	ScratchTarget& Target);
 
-ScratchBlock* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const JsnBlockMap& Map, ScratchTarget& Target);
+ScratchMethod* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const JsnBlockMap& Map, ScratchTarget& Target);
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 {
@@ -43,6 +45,7 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	jsmntok_t* j_blocks;
 	jsmntok_t* j_pair, * j_block;
 	ScratchTarget*	target;
+	ScratchChain*	chain;
 	std::string		name, nextkey;
 	JsnBlockMap		map;
 	bool			isStage;
@@ -74,8 +77,11 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 
 		if (topLevel)
 		{
-			if (!Loader_LoadChain(Json, j_block, map, *target))
+			target->Chains().emplace_back();
+			chain = &target->Chains().back();
+			if (!Loader_LoadChain(Json, j_block, chain, map, *target))
 			{
+				target->Chains().pop_back();
 				Tree.Targets().pop_back();
 				return false;
 			}
@@ -88,22 +94,20 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 bool Loader_LoadChain(
 	const char* Json,
 	jsmntok_t* JSNBlock,
+	ScratchChain* Chain,
 	const JsnBlockMap& Map,
 	ScratchTarget& Target)
 {
-	ScratchBlock*	block;
-	ScratchChain*	chain;
+	EScratchOpcode	op;
 	std::string		nextkey;
 	jsmntok_t*		j_block = JSNBlock;
 
-	if (!(block = Loader_LoadBlock(Json, j_block, Map, Target)))
+	if (!(op = Loader_LoadBlock(Json, j_block, Chain, Map, Target)))
 		return false;
 
-	Target.Chains().emplace_back();
-	chain = &Target.Chains().back();
-	chain->push_back(block);
+	Chain->AddOpcode(op);
 
-	// Loop all blocks in chain
+	// Loop all blocks under parent
 	if (Json_ParseObject(Json, j_block, "next", &nextkey))
 	{
 		auto it = Map.find(nextkey);
@@ -112,11 +116,11 @@ bool Loader_LoadChain(
 			do
 			{
 				j_block = (*it).second;
-				if (!(block = Loader_LoadBlock(Json, j_block, Map, Target)) ||
+				if (!(op = Loader_LoadBlock(Json, j_block, Chain, Map, Target)) ||
 					!Json_ParseObject(Json, j_block, "next", &nextkey))
 					break;
 
-				chain->push_back(block);
+				Chain->AddOpcode(op);
 				it = Map.find(nextkey);
 			} while (it != Map.end());
 		}
@@ -125,22 +129,22 @@ bool Loader_LoadChain(
 	return true;
 }
 
-ScratchBlock* Loader_LoadBlock(
+EScratchOpcode Loader_LoadBlock(
 	const char* Json,
 	jsmntok_t* JSNBlock,
+	ScratchChain* Chain,
 	const JsnBlockMap& Map,
 	ScratchTarget& Target)
 {
 	std::string op;
 	jsmntok_t* j_inputs, * j_fields, * j_pair;
-	ScratchBlock* input;
-	ScratchInputs slots;
+	ScratchMethod* input;
 	
 	if (!Json_ParseObject(Json, JSNBlock,
 		"opcode", &op,
 		"fields", &j_fields,
 		"inputs", &j_inputs))
-		return 0;
+		return ScratchOpcode_unknown;
 
 	LOADER_LOG("\t%s\n", op.c_str());
 
@@ -148,16 +152,15 @@ ScratchBlock* Loader_LoadBlock(
 	for (int i = 0; i < j_inputs->size; ++i, j_pair = Json_Next(j_pair))
 	{
 		if (!(input = Loader_LoadInput(Json, Json_Pair_Value(j_pair), Map, Target)))
-			return 0;
+			return ScratchOpcode_unknown;
 
-		slots.SetSlot(Json_ToString(Json, j_pair).c_str(), input);
+		Chain->AddInput(input);
 	}
 
-	return ScratchBlock::FromOpcode(
-		(EScratchOpcode)ScratchOpcode_FromString(op.c_str()), slots);
+	return (EScratchOpcode)ScratchOpcode_FromString(op.c_str());
 }
 
-ScratchBlock* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const JsnBlockMap& Map, ScratchTarget& Target)
+ScratchMethod* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const JsnBlockMap& Map, ScratchTarget& Target)
 {
 	jsmntok_t* data, * type, * first;
 	long type_val;
@@ -171,11 +174,10 @@ ScratchBlock* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const J
 		if (it == Map.cend())
 			return 0;
 
-		if (ScratchBlock* block = Loader_LoadBlock(Json, (*it).second, Map, Target))
-		{
-			if (Loader_LoadChain(Json, (*it).second, Map, Target))
-				return block;
-		}
+		ScratchChain* chain = new ScratchChain();
+		if (Loader_LoadChain(Json, (*it).second, chain, Map, Target))
+			return chain;
+		delete chain;
 		return 0; // parent block or its chain failed to load
 	}
 	else
@@ -194,9 +196,9 @@ ScratchBlock* Loader_LoadInput(const char* Json, jsmntok_t* JSNInputArr, const J
 		case ScratchInputType_Angle:
 		case ScratchInputType_Color:
 		case ScratchInputType_String:
-			return new ScratchBlock_Literal(ScratchValue(Json_ToString(Json, first).c_str()));
+			return new ScratchLiteral(Json_ToString(Json, first).c_str());
 		default:
-			return new ScratchBlock_NotImplemented(ScratchOpcode_unknown);
+			return new Scratch_NotImplemented();
 		}
 	}
 
