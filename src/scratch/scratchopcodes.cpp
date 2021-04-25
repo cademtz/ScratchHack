@@ -135,6 +135,8 @@ static const struct {
 	{ "procedures_call",			   procedures_call },
 	{ "procedures_prototype",		   procedures_prototype },
 	{ "procedures_declaration",		   procedures_declaration },
+	{ "argument_reporter_string_number", argument_reporter_string_number },
+	{ "argument_reporter_boolean",     argument_reporter_boolean },
 
 	{ "sensing_touchingobject",		   sensing_touchingobject },
 	{ "sensing_touchingobjectmenu",	   sensing_touchingobjectmenu },

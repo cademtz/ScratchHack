@@ -136,9 +136,7 @@ int ScratchChain::Exec(ScratchState& State)
 			break;
 
 		case operator_letter_of:
-			NextInput(input)->Exec(State);
-			temp = State.ret; // Index
-			NextInput(input)->Exec(State);
+			BinOpHack(State, input, temp);
 			
 			// TODO: Looks ridiculous. Perhaps have a union to store primitive types
 			if ((int)temp.GetNumber() >= 1 && (int)temp.GetNumber() <= State.ret.GetString().length())

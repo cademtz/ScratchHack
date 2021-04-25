@@ -136,6 +136,8 @@ enum EScratchOpcode
 	procedures_call,
 	procedures_prototype,
 	procedures_declaration,
+	argument_reporter_string_number,
+	argument_reporter_boolean,
 
 	sensing_touchingobject,
 	sensing_touchingobjectmenu,

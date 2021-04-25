@@ -49,6 +49,9 @@ bool Json_GetDouble(const char* Json, jsmntok_t* Val, double* out_Double);
 
 #ifdef __cplusplus
 #include <string>
+
+bool Json_StrictToString(const char* Json, jsmntok_t* Tk, std::string* out_Str);
+
 inline std::string Json_ToString(const char* Json, jsmntok_t* Tk) {
 	return std::string(Json + Tk->start, Json_Strlen(Tk));
 }

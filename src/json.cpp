@@ -63,3 +63,39 @@ bool Json_GetDouble(const char* Json, jsmntok_t* Val, double* out_Double)
 	}
 	return false;
 }
+
+bool Json_StrictToString(const char* Json, jsmntok_t* Tk, std::string* out_Str)
+{
+	if (Tk->type != JSMN_STRING)
+		return false;
+
+	for (int i = Tk->start; i < Tk->end; ++i)
+	{
+		if (Json[i] == '\\')
+		{
+			++i;
+			if (i >= Tk->end)
+				return false;
+
+			switch (Json[i])
+			{
+			case '"':
+			case '\\':
+			case '/':
+				out_Str->push_back(Json[i]);
+				break;
+			case 'f': out_Str->push_back('\f'); break;
+			case 'n': out_Str->push_back('\n'); break;
+			case 'r': out_Str->push_back('\r'); break;
+			case 't': out_Str->push_back('\t'); break;
+			case 'u': break; // lazy
+			case 'b': break; // uh?
+			default:
+				return false;
+			}
+		}
+		else
+			out_Str->push_back(Json[i]);
+	}
+	return true;
+}
