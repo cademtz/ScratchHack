@@ -163,6 +163,13 @@ int ScratchChain::Exec(ScratchState& State)
 
 		//case operator_mathop:
 
+		case procedures_definition: break; // Current custom proc description, does nothing.
+		case procedures_call:
+		case procedures_prototype: assert(0 && "Prototype should not be executed"); break;
+		case procedures_declaration: assert(0 && "Declaration should not be executed"); break;
+		case argument_reporter_string_number:
+		case argument_reporter_boolean:
+
 		default:
 			SCRATCH_PRINT("<unknown>\n");
 		}

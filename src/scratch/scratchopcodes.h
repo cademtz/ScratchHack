@@ -174,4 +174,21 @@ enum EScratchOpcode
 	sound_changevolumeby,
 	sound_setvolumeto,
 	sound_volume,
+
+	// Exensions
+
+	pen_clear,
+	pen_stamp,
+	pen_penDown,
+	pen_penUp,
+	pen_setPenColorToColor,
+	pen_changePenColorParamBy,
+	pen_setPenColorParamTo,
+	pen_changePenSizeBy,
+	pen_setPenSizeTo,
+	pen_setPenShadeToNumber,
+	pen_changePenShadeBy,
+	pen_setPenHueToNumber,
+	pen_changePenHueBy,
+	pen_menu_colorParam,
 };

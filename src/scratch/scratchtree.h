@@ -11,7 +11,6 @@
 class ScratchMethod;
 class ScratchTarget;
 class ScratchChain;
-//class ScratchBlock;
 class ScratchList;
 class ScratchVar;
 
