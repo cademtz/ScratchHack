@@ -40,11 +40,11 @@ bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree)
 {
 	jsmntok_t* j_blocks;
-	jsmntok_t* j_pair, * j_block;
+	jsmntok_t* j_pair;
 	ScratchTarget*	target;
 	ScratchChain*	chain;
 	LoaderBlock*	block;
-	std::string		name, key;
+	std::string		name;
 	JsnBlockMap		map;
 	bool			isStage;
 
@@ -93,7 +93,6 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 {
 	std::string op;
 	jsmntok_t* j_inputs, * j_fields, * j_pair;
-	LoaderInput* input;
 
 	if (!Json_ParseObject(Json, JSNBlock,
 		"opcode",	&op,
@@ -143,9 +142,11 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 		Input.type = type_val;
 		for (int i = 1; i < data->size; ++i, next = Json_Next(next))
 			Input.vals.push_back(Json_ToString(Json, next));
+
+		return true;
 	}
-	else
-		return false;
+
+	return false;
 }
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, const JsnBlockMap& Map)
