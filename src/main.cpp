@@ -9,14 +9,13 @@
 
 #pragma comment(lib, "Urlmon.lib")
 
-jsmntok_t Tokens[200'000];
-
 int main()
 {
 	char buf[128];
 	ULONG len;
 	HRESULT err;
 	int count;
+	jsmntok_t* tokens;
 
 	if (!SUCCEEDED(err = CoInitialize(0)))
 		return printf("Error %d\n", (int)err), -1;
@@ -41,12 +40,19 @@ int main()
 	jsmn_parser p;
 	jsmn_init(&p);
 
-	count = jsmn_parse(&p, json.c_str(), json.size(), Tokens, sizeof(Tokens) / sizeof(Tokens[0]));
-
+	count = jsmn_parse(&p, json.c_str(), json.size(), 0, 0);
 	printf("%d tokens\n", count);
 
+	if (count < 1)
+		return -1;
+
+	tokens = new jsmntok_t[count];
+	jsmn_init(&p);
+	if (jsmn_parse(&p, json.c_str(), json.size(), tokens, count) < 1)
+		return printf("Failed to parse JSON, likely invalid.\n"), -1;
+
 	ScratchTree tree;
-	printf("Loader status: %d\n", (int)Loader_LoadProject(json.c_str(), Tokens, tree));
+	printf("Loader status: %d\n", (int)Loader_LoadProject(json.c_str(), tokens, tree));
 
 	ScratchState state;
 	for (auto& target : tree.Targets())

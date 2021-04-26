@@ -10,12 +10,6 @@ int _Scratch_stricmp(const char* One, const char* Two)
 	return a - b;
 }
 
-/*ScratchChain::~ScratchChain()
-{
-	for (ScratchBlock* block : *this)
-		delete block;
-}*/
-
 void ScratchValue::Set(const char* Value)
 {
 	m_value = Value;

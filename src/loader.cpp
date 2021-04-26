@@ -1,6 +1,4 @@
 #include "loader.h"
-#include <string>
-#include <map>
 #include "scratch/scratchblocks.h"
 
 #define LOADER_LOG(x, ...) printf(x, __VA_ARGS__)
@@ -9,6 +7,7 @@ typedef std::map<std::string, LoaderBlock> JsnBlockMap;
 
 bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block);
 bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInput, LoaderInput& Input);
+bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut);
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, const JsnBlockMap& Map);
 
@@ -92,8 +91,10 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block)
 {
 	std::string op;
-	jsmntok_t* j_inputs, * j_fields, * j_pair;
+	jsmntok_t* j_inputs, * j_fields, * j_pair, * j_mut;
+	LoaderInput* input;
 
+	j_mut = Json_Find(Json, JSNBlock, "mutation"); // Optional
 	if (!Json_ParseObject(Json, JSNBlock,
 		"opcode",	&op,
 		"fields",	&j_fields,
@@ -111,10 +112,14 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 	j_pair = Json_StartObject(j_inputs);
 	for (int i = 0; i < j_inputs->size; ++i, j_pair = Json_Next(j_pair))
 	{
-		Block.inputs.emplace_back();
-		if (!Loader_ParseInput(Json, Json_Pair_Value(j_pair), Block.inputs.back()))
+		input = &Block.inputs[Json_ToString(Json, j_pair)];
+		if (!Loader_ParseInput(Json, Json_Pair_Value(j_pair), *input))
 			return false;
 	}
+
+	Block.hasMutation = j_mut != 0;
+	if (Block.hasMutation && !Loader_ParseMutation(Json, j_mut, Block.mutation))
+		return false;
 
 	return true;
 }
@@ -131,6 +136,7 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 	{
 		Input.type = ScratchInputType_Block;
 		Input.vals.push_back(Json_ToString(Json, data));
+		return true;
 	}
 	else if (data->type == JSMN_ARRAY)
 	{
@@ -147,6 +153,63 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 	}
 
 	return false;
+}
+
+bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut)
+{
+	// Okay, so Scratch does this AWESOME thing, maybe it's a bug, maybe it's not:
+	// All "argument..." and "warp" values are JSON strings... in JSON.
+	// Why? I have no clue. The wiki doesn't seem to notice this, either.
+	// https://en.scratch-wiki.info/wiki/Scratch_File_Format#Mutations
+
+	std::string	warp, argIds;
+	jsmntok_t*	j_argIds, * j_next;
+	jsmn_parser	p;
+	jsmntok_t*	tokens;
+	int			count;
+	bool		okay;
+
+	if (!Json_ParseObject(Json, JSNMut,
+		"argumentids",	&j_argIds,
+		"warp",			&warp))
+		return false;
+
+	Mut.warp = !_Scratch_stricmp(warp.c_str(), "\"true\"");
+	if (!Mut.warp && !_Scratch_stricmp(warp.c_str(), "\"false\""))
+		return false; // Bad data, not a JSON bool
+
+	if (!Json_StrictToString(Json, j_argIds, &argIds)) // Parse JSON escapes
+		return false; // Invalid JSON string
+
+	jsmn_init(&p);
+	count = jsmn_parse(&p, argIds.c_str(), argIds.length(), 0, 0);
+	if (count < 0)
+		return false;
+	else if (count == 0)
+		return true; // No arguments to parse. Finished.
+
+	okay = false;
+	tokens = new jsmntok_t[count];
+
+	jsmn_init(&p);
+	if (jsmn_parse(&p, argIds.c_str(), argIds.length(), tokens, count) > 0 &&
+		(j_next = Json_StartArray(tokens)))
+	{
+		okay = true;
+		for (int i = 0; i < tokens->size; ++i, j_next = Json_Next(j_next))
+		{
+			if (j_next->type != JSMN_STRING)
+			{
+				okay = false;
+				break;
+			}
+
+			Mut.argIds.insert(Json_ToString(Json, j_next));
+		}
+	}
+
+	delete[] tokens;
+	return okay;
 }
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, const JsnBlockMap& Map)
@@ -188,10 +251,11 @@ bool Loader_LoadBlock(
 	Chain.AddOpcode((EScratchOpcode)BlockInfo.opcode);
 	for (auto& l_input : BlockInfo.inputs)
 	{
-		if (!(input = Loader_LoadInput(l_input, Map, Target)))
+		if (!(input = Loader_LoadInput(l_input.second, Map, Target)))
 			return false;
 		Chain.AddInput(input);
 	}
+
 	return true;
 }
 

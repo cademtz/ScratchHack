@@ -14,6 +14,12 @@ ScratchValue ScratchStack::Pop()
 	return val;
 }
 
+ScratchChain::~ScratchChain()
+{
+	for (ScratchMethod* input : m_inputs)
+		delete input;
+}
+
 int ScratchChain::Exec(ScratchState& State)
 {
 	// TODO: Goal is fewest local vars possible

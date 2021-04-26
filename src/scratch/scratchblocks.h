@@ -37,6 +37,7 @@ class ScratchChain : public ScratchMethod
 {
 public:
 	ScratchChain() { }
+	~ScratchChain();
 
 	inline void AddOpcode(EScratchOpcode Op) {
 		m_ops.push_back(Op);

@@ -2,6 +2,9 @@
 #include "json.h"
 #include "scratch/scratchtree.h"
 #include <vector>
+#include <string>
+#include <map>
+#include <set>
 
 enum EScratchInputType
 {
@@ -27,9 +30,9 @@ enum EScratchShadow
 
 struct LoaderMutation
 {
-	std::string proccode;
-	std::string argIds;
-	std::string argNames;
+	//std::string proccode; // Isn't unique. Useless here lol
+	std::set<std::string> argIds;
+	//std::string argNames; // Same here
 	bool warp;
 };
 
@@ -41,10 +44,12 @@ struct LoaderInput
 
 struct LoaderBlock
 {
+	LoaderMutation mutation;
+	std::map<std::string, LoaderInput> inputs;
 	std::string next;
-	std::vector<LoaderInput> inputs;
 	int opcode;
 	bool topLevel;
+	bool hasMutation;
 };
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree);

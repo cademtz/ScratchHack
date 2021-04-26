@@ -2,7 +2,6 @@
 #include <map>
 #include <list>
 #include <string>
-#include <vector>
 #include <stdint.h>
 #include "scratchopcodes.h"
 
@@ -15,6 +14,8 @@ class ScratchList;
 class ScratchVar;
 
 struct ScratchColor { uint8_t rgba[4]; };
+
+int _Scratch_stricmp(const char* One, const char* Two); // Funny util
 
 enum EScratchType
 {
@@ -44,16 +45,16 @@ public:
 
 	inline bool IsStage() const { return m_isStage; }
 	inline const std::string Name() const { return m_name; }
-	inline std::vector<ScratchVar>& Vars() { return m_vars; }
-	inline std::vector<ScratchList>& Lists() { return m_lists; }
-	inline std::vector<ScratchChain>& Chains() { return m_chains; }
+	inline std::list<ScratchVar>& Vars() { return m_vars; }
+	inline std::list<ScratchList>& Lists() { return m_lists; }
+	inline std::list<ScratchChain>& Chains() { return m_chains; }
 
 private:
 	bool m_isStage = false;
 	std::string m_name;
-	std::vector<ScratchVar> m_vars;
-	std::vector<ScratchList> m_lists;
-	std::vector<ScratchChain> m_chains;
+	std::list<ScratchVar> m_vars;
+	std::list<ScratchList> m_lists;
+	std::list<ScratchChain> m_chains;
 };
 
 class ScratchValue
