@@ -33,8 +33,6 @@ int main()
 			json.append(buf, len);
 	} while (SUCCEEDED(err) && err != S_FALSE);
 
-	//printf("Got:\n%s\n", json.c_str());
-
 	stream.Release();
 
 	jsmn_parser p;

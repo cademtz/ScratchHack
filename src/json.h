@@ -46,9 +46,35 @@ inline jsmntok_t* Json_StartObject(jsmntok* Obj) {
 bool Json_GetBool(const char* Json, jsmntok_t* Val, bool* out_Bool);
 bool Json_GetInt(const char* Json, jsmntok_t* Val, long* out_Int);
 bool Json_GetDouble(const char* Json, jsmntok_t* Val, double* out_Double);
+inline bool Json_IsNull(const char* Json, jsmntok_t* Val) {
+	return Val->type == JSMN_PRIMITIVE && Json[Val->start] == 'n';
+}
 
 #ifdef __cplusplus
 #include <string>
+#include <vector>
+
+struct JsonParser
+{
+public:
+	inline int Parse(const char* Json, size_t Len)
+	{
+		int count;
+		jsmn_parser p;
+
+		jsmn_init(&p);
+		count = jsmn_parse(&p, Json, Len, 0, 0);
+		if (count > 0)
+		{
+			tokens.resize(count);
+			jsmn_init(&p);
+			count = jsmn_parse(&p, Json, Len, &tokens[0], count);
+		}
+		return count;
+	}
+
+	std::vector<jsmntok_t> tokens;
+};
 
 bool Json_StrictToString(const char* Json, jsmntok_t* Tk, std::string* out_Str);
 
@@ -74,7 +100,13 @@ inline bool Json_GetValue(const char* Json, jsmntok_t* Tk, double* out_Double) {
 }
 inline bool Json_GetValue(const char* Json, jsmntok_t* Tk, std::string* out_Str) 
 {
-	*out_Str = Json_ToString(Json, Tk);
+	if (Tk->type == JSMN_STRING)
+		return Json_StrictToString(Json, Tk, out_Str);
+	else if (Tk->type != JSMN_PRIMITIVE || Json[Tk->start] != 'n') // Fill string unless Tk is a JSON null
+	{
+		out_Str->clear();
+		*out_Str = Json_ToString(Json, Tk);
+	}
 	return true;
 }
 

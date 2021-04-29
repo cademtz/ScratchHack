@@ -1,23 +1,32 @@
 #include "loader.h"
 #include "scratch/scratchblocks.h"
+#include <assert.h>
 
 #define LOADER_LOG(x, ...) printf(x, __VA_ARGS__)
 
-typedef std::map<std::string, LoaderBlock> JsnBlockMap;
+template <class TKey, class TVal, class TAnyKey>
+inline const TVal* Loader_Find(const std::map<TKey, TVal>& Map, const TAnyKey& Key)
+{
+	auto it = Map.find(Key);
+	return it == Map.end() ? 0 : &(*it).second;
+}
 
-bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block);
+bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block, const JsnBlockMap& Map);
 bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInput, LoaderInput& Input);
-bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut);
+bool Loader_ParseField(const char* Json, jsmntok_t* JSNField, LoaderField& Field);
+bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut, bool GetArgs);
 
-bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, const JsnBlockMap& Map);
+bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader);
 
 bool Loader_LoadBlock(
 	ScratchChain& Chain,
 	const LoaderBlock& BlockInfo,
-	const JsnBlockMap& Map,
+	LoaderState& Loader,
 	ScratchTarget& Target);
 
-ScratchMethod* Loader_LoadInput(const LoaderInput& Input, const JsnBlockMap& Map, ScratchTarget& Target);
+const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Loader);
+
+ScratchMethod* Loader_LoadInput(const LoaderInput& Input, LoaderState& Loader, ScratchTarget& Target);
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 {
@@ -38,14 +47,20 @@ bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 
 bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree)
 {
-	jsmntok_t* j_blocks;
-	jsmntok_t* j_pair;
+	jsmntok_t*		j_blocks, *j_pair;
+	LoaderBlock*	proto;
+	LoaderInput*	arg;
+	union // One-time use
+	{
+		LoaderBlock*	block;
+		ScratchChain*	chain;
+		bool			isStage;
+	};
 	ScratchTarget*	target;
-	ScratchChain*	chain;
-	LoaderBlock*	block;
 	std::string		name;
 	JsnBlockMap		map;
-	bool			isStage;
+	ScratchBlockMap loaded;
+	LoaderState		state = { loaded, map };
 
 	if (!Json_ParseObject(Json, JSNTarget,
 		"name", &name,
@@ -58,29 +73,101 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	Tree.Targets().emplace_back(name.c_str(), isStage);
 	target = &Tree.Targets().back();
 
-	// Parse and map all blocks by key
+	// Map all keys to a LoaderBlock struct
+	j_pair = Json_StartObject(j_blocks);
+	for (int i = 0; i < j_blocks->size; ++i, j_pair = Json_Next(j_pair))
+		map.emplace(Json_ToString(Json, j_pair), LoaderBlock());
+
+	// Re-iterate, fill all block structs and references
 	j_pair = Json_StartObject(j_blocks);
 	for (int i = 0; i < j_blocks->size; ++i, j_pair = Json_Next(j_pair))
 	{
 		block = &map[Json_ToString(Json, j_pair)];
-		if (!Loader_ParseBlock(Json, Json_Pair_Value(j_pair), *block))
-		{
-			Tree.Targets().pop_back();
+		if (!Loader_ParseBlock(Json, Json_Pair_Value(j_pair), *block, map))
 			return false;
+	}
+
+	// This scratch VM uses stack index for arguments
+	// So all getter blocks will be given an appropriate stack index to use
+	for (auto& pair : map) // Check all blocks
+	{
+		block = &pair.second;
+		if (block->opcode != argument_reporter_boolean &&
+			block->opcode != argument_reporter_string_number)
+			continue; // Only care about these
+
+		if (!block->_parent)
+			continue; // Detached arg reporters exist when you edit a custom block and remove arg(s)
+
+		proto = (LoaderBlock*)Loader_GetProto(*block, state); // zzz
+		if (!proto)
+			return assert(0 && "Unknown procedure prototype"), false;
+
+		int index = -1;
+		for (auto& pair : proto->mutation.argmap)
+		{
+			if (pair.first == block->fields["VALUE"].vals[0])
+			{
+				index = -index - 1;
+				break;
+			}
+			--index;
+		}
+
+		if (index < 0)
+			return assert(0 && "Using mismatched args, couldn't make index"), false;
+
+		arg = &block->inputs["ARG"];
+		arg->type = ScratchInputType_Arg;
+		arg->vals = { std::to_string(index) };
+	}
+
+	// Remap caller inputs to arg names so they are passed in alphabetical order
+	for (auto& pair : map)
+	{
+		block = &pair.second;
+		if (block->opcode != procedures_call)
+			continue; // Only care about these
+
+		proto = (LoaderBlock*)Loader_GetProto(*block, state); // zzz
+		if (!proto)
+			return assert(0 && "Unknown procedure prototype"), false;
+
+		for (auto& arg_pair : proto->mutation.argmap)
+		{
+			auto it = block->inputs.find(arg_pair.second);
+			if (it == block->inputs.end())
+				return assert(0 && "Procedure call is missing some args"), false;
+
+			block->inputs.emplace(arg_pair.first, std::move((*it).second));
+			block->inputs.erase(it); // Associative container inserts don't invalidate iterators
+		}
+
+		for (auto it = block->inputs.begin(); it != block->inputs.end();)
+		{
+			if (!Loader_Find(proto->mutation.argmap, (*it).first))
+			{
+				LOADER_LOG("Warning: Method \"%s\" has unused arg \"%s\"\n", pair.first.c_str(), (*it).first.c_str());
+				it = block->inputs.erase(it);
+			}
+			else
+				++it;
 		}
 	}
 
+	// Okay okay, actually load the blocks in to the VM now
 	for (auto& pair : map)
 	{
-		if (!pair.second.topLevel)
+		// Not top level or already loaded
+		if (!pair.second.topLevel || loaded.find(&pair.second) != loaded.end())
 			continue;
 
 		target->Chains().emplace_back();
 		chain = &target->Chains().back();
 
-		if (!Loader_LoadChain(*chain, *target, pair.second, map))
+		if (!Loader_LoadChain(*chain, *target, pair.second, state))
 		{
-			Tree.Targets().pop_back();
+			target->Chains().pop_back();
 			return false;
 		}
 	}
@@ -88,11 +175,15 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	return true;
 }
 
-bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block)
+bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block, const JsnBlockMap& Map)
 {
-	std::string op;
+	std::string op, next, parent;
 	jsmntok_t* j_inputs, * j_fields, * j_pair, * j_mut;
-	LoaderInput* input;
+	union
+	{
+		LoaderInput* input;
+		LoaderField* field;
+	};
 
 	j_mut = Json_Find(Json, JSNBlock, "mutation"); // Optional
 	if (!Json_ParseObject(Json, JSNBlock,
@@ -100,12 +191,18 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 		"fields",	&j_fields,
 		"inputs",	&j_inputs,
 		"topLevel",	&Block.topLevel,
-		"next",		&Block.next))
+		"next",		&next,
+		"parent",	&parent))
 		return false;
+
+	if (!next.empty() && !(Block._next = Loader_Find(Map, next)))
+		return assert(0 && "Undefined reference to next block"), false; 
+	if (!parent.empty() && !(Block._parent = Loader_Find(Map, parent)))
+		return assert(0 && "Undefined reference to parent block"), false;
 
 	Block.opcode = ScratchOpcode_FromString(op.c_str());
 	if (Block.opcode == ScratchOpcode_unknown)
-		return false;
+		return assert(0 && "Scratch opcode string unknown"), false;
 
 	LOADER_LOG("\t%s\n", op.c_str());
 
@@ -117,8 +214,17 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 			return false;
 	}
 
+	j_pair = Json_StartObject(j_fields);
+	for (int i = 0; i < j_fields->size; ++i, j_pair = Json_Next(j_pair))
+	{
+		field = &Block.fields[Json_ToString(Json, j_pair)];
+		if (!Loader_ParseField(Json, Json_Pair_Value(j_pair), *field))
+			return false;
+	}
+
 	Block.hasMutation = j_mut != 0;
-	if (Block.hasMutation && !Loader_ParseMutation(Json, j_mut, Block.mutation))
+	if (Block.hasMutation &&
+		!Loader_ParseMutation(Json, j_mut, Block.mutation, Block.opcode == procedures_prototype))
 		return false;
 
 	return true;
@@ -130,7 +236,7 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 	long type_val;
 
 	if (!(data = Json_GetIndex(JSNInputArr, 1)))
-		return false;
+		return assert(0 && "Expected at least 2 items in Scratch input array"), false;
 
 	if (data->type == JSMN_STRING)
 	{
@@ -143,7 +249,7 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 		if (!(type = Json_GetIndex(data, 0)) ||
 			!(next = Json_GetIndex(data, 1)) ||
 			!Json_GetInt(Json, type, &type_val))
-			return false;
+			return assert(0 && "Expected type int and value string for Scratch input's non-shadow value"), false;
 
 		Input.type = type_val;
 		for (int i = 1; i < data->size; ++i, next = Json_Next(next))
@@ -151,87 +257,96 @@ bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInputArr, LoaderInput& In
 
 		return true;
 	}
+	else if (Json_IsNull(Json, data))
+	{
+		LOADER_LOG("Warning: Got JSON null for input value. Ignoring input.\n");
+		return true;
+	}
 
-	return false;
+	return assert(0 && "Unexpected type for Scratch input"), false;
 }
 
-bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut)
+bool Loader_ParseField(const char* Json, jsmntok_t* JSNField, LoaderField& Field)
+{
+	jsmntok_t* j_next = Json_StartArray(JSNField);
+	std::string* next;
+
+	for (int i = 0; i < JSNField->size; ++i, j_next = Json_Next(j_next))
+	{
+		Field.vals.emplace_back();
+		next = &Field.vals.back();
+		if (!Json_GetValue(Json, j_next, next))
+		{
+			Field.vals.pop_back();
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut, bool GetArgs)
 {
 	// Okay, so Scratch does this AWESOME thing, maybe it's a bug, maybe it's not:
 	// All "argument..." and "warp" values are JSON strings... in JSON.
 	// Why? I have no clue. The wiki doesn't seem to notice this, either.
 	// https://en.scratch-wiki.info/wiki/Scratch_File_Format#Mutations
 
-	std::string	warp, argIds;
-	jsmntok_t*	j_argIds, * j_next;
-	jsmn_parser	p;
-	jsmntok_t*	tokens;
-	int			count;
-	bool		okay;
+	std::string	warp, jsnstr;
+	std::vector<std::string> names;
+	jsmntok_t*	j_next;
+	JsonParser	p;
 
 	if (!Json_ParseObject(Json, JSNMut,
-		"argumentids",	&j_argIds,
-		"warp",			&warp))
+		"warp", &warp,
+		"proccode", &Mut.proccode))
 		return false;
 
-	Mut.warp = !_Scratch_stricmp(warp.c_str(), "\"true\"");
-	if (!Mut.warp && !_Scratch_stricmp(warp.c_str(), "\"false\""))
+	Mut.warp = warp == "true";
+	if (!Mut.warp && warp != "false")
 		return false; // Bad data, not a JSON bool
 
-	if (!Json_StrictToString(Json, j_argIds, &argIds)) // Parse JSON escapes
-		return false; // Invalid JSON string
-
-	jsmn_init(&p);
-	count = jsmn_parse(&p, argIds.c_str(), argIds.length(), 0, 0);
-	if (count < 0)
-		return false;
-	else if (count == 0)
-		return true; // No arguments to parse. Finished.
-
-	okay = false;
-	tokens = new jsmntok_t[count];
-
-	jsmn_init(&p);
-	if (jsmn_parse(&p, argIds.c_str(), argIds.length(), tokens, count) > 0 &&
-		(j_next = Json_StartArray(tokens)))
+	if (GetArgs)
 	{
-		okay = true;
-		for (int i = 0; i < tokens->size; ++i, j_next = Json_Next(j_next))
+		// Parse argumentnames array
+		if (!Json_ParseObject(Json, JSNMut, "argumentnames", &jsnstr) ||
+			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
+			!(j_next = Json_StartArray(&p.tokens[0])))
+			return false; // Invalid JSON string
+
+		// Get all names
+		for (int i = 0; i < p.tokens[0].size; ++i, j_next = Json_Next(j_next))
 		{
 			if (j_next->type != JSMN_STRING)
-			{
-				okay = false;
-				break;
-			}
-
-			Mut.argIds.insert(Json_ToString(Json, j_next));
+				return assert(0 && "Name array contains non-string"), false;
+			names.push_back(Json_ToString(jsnstr.c_str(), j_next));
 		}
-	}
 
-	delete[] tokens;
-	return okay;
+		// Parse argumentids array
+		if (!Json_ParseObject(Json, JSNMut, "argumentids", &jsnstr) ||
+			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
+			!(j_next = Json_StartArray(&p.tokens[0])))
+			return false; // Invalid JSON string
+
+		if (p.tokens[0].size != names.size())
+			return assert(0 && "Mismatched Name and ID arrays"), false;
+
+		// Populate map with list of names' corresponding Arg IDs
+		for (int i = 0; i < p.tokens[0].size; ++i, j_next = Json_Next(j_next))
+			Mut.argmap[names[i]] = Json_ToString(jsnstr.c_str(), j_next);
+	}
+	return true;
 }
 
-bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, const JsnBlockMap& Map)
+bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader)
 {
-	const LoaderBlock* block;
-
-	if (!Loader_LoadBlock(Chain, BlockInfo, Map, Target))
+	Loader.loaded[&BlockInfo] = &Chain;
+	if (!Loader_LoadBlock(Chain, BlockInfo, Loader, Target))
 		return false;
 
-	auto it = Map.find(BlockInfo.next);
-	if (it != Map.end())
+	for (const LoaderBlock* block = BlockInfo._next; block; block = block->_next)
 	{
-		do
-		{
-			block = &(*it).second;
-			if (!Loader_LoadBlock(Chain, *block, Map, Target))
-			{
-				Target.Chains().pop_back();
-				return false;
-			}
-			it = Map.find(block->next);
-		} while (it != Map.end());
+		if (!Loader_LoadBlock(Chain, *block, Loader, Target))
+			return false;
 	}
 
 	return true;
@@ -240,18 +355,60 @@ bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBl
 bool Loader_LoadBlock(
 	ScratchChain& Chain,
 	const LoaderBlock& BlockInfo,
-	const JsnBlockMap& Map,
+	LoaderState& Loader,
 	ScratchTarget& Target)
 {
+	const LoaderBlock* l_callee = 0;
+	const LoaderBlock* proto = 0;
 	ScratchMethod* input;
+	union
+	{
+		ScratchMethod* const* pCallee;
+		ScratchMethod* callee;
+		ScratchChain* chain;
+	}; // blame scratch mutations for this finicky code
 
+	LOADER_LOG("\tLoadBlock %s\n", ScratchOpcode_ToString(BlockInfo.opcode));
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
 		return false;
 
 	Chain.AddOpcode((EScratchOpcode)BlockInfo.opcode);
+
+	// Refer to previous comment
+	if (BlockInfo.opcode == procedures_call)
+	{
+		proto = Loader_GetProto(BlockInfo, Loader);
+		if (!proto)
+			return false;
+
+		// For caller: Get the mutation being called
+		if (!(l_callee = proto->_parent) ||
+			l_callee->opcode != procedures_definition)
+			return false;
+
+		if (pCallee = Loader_Find(Loader.loaded, l_callee))
+			callee = *pCallee;
+		else // Not yet loaded. Load it ourselves.
+		{
+			// TODO: Have Loader_LoadTarget populate map with blank chains to avoid this code
+			Target.Chains().emplace_back();
+			chain = &Target.Chains().back();
+			if (!Loader_LoadChain(*chain, Target, *l_callee, Loader))
+			{
+				Target.Chains().pop_back();
+				return false;
+			}
+
+			callee = chain;
+		}
+
+		Chain.AddInput(callee);
+	}
+
 	for (auto& l_input : BlockInfo.inputs)
 	{
-		if (!(input = Loader_LoadInput(l_input.second, Map, Target)))
+		LOADER_LOG("\t\tInput %s\n", l_input.first.c_str());
+		if (!(input = Loader_LoadInput(l_input.second, Loader, Target)))
 			return false;
 		Chain.AddInput(input);
 	}
@@ -259,16 +416,54 @@ bool Loader_LoadBlock(
 	return true;
 }
 
-ScratchMethod* Loader_LoadInput(const LoaderInput& Input, const JsnBlockMap& Map, ScratchTarget& Target)
+const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Loader)
+{
+	union
+	{
+		const LoaderInput* custom;
+		const LoaderBlock* block;
+	};
+
+	if (BlockInfo.opcode == procedures_definition)
+	{
+		if (custom = Loader_Find(BlockInfo.inputs, "custom_block"))
+			return Loader_Find(Loader.map, custom->vals[0]);
+		return assert(0 && "Definition missing 'custom_block' input"), nullptr;
+	}
+	else if (BlockInfo.opcode == procedures_call)
+	{
+		// Search by name (proccode)
+		// Proto names aren't unique. Undefined behavior if there are name conflicts.
+		for (auto& pair : Loader.map)
+		{
+			block = &pair.second;
+			if (block->opcode == procedures_prototype &&
+				block->mutation.proccode == BlockInfo.mutation.proccode)
+				return block;
+		}
+	}
+	else if (BlockInfo.opcode == argument_reporter_boolean ||
+		BlockInfo.opcode == argument_reporter_string_number)
+	{
+		for (block = BlockInfo._parent; block && block->_parent; block = block->_parent);
+
+		if (block && block->opcode == procedures_definition)
+			return Loader_GetProto(*block, Loader);
+	}
+
+	return 0;
+}
+
+ScratchMethod* Loader_LoadInput(const LoaderInput& Input, LoaderState& Loader, ScratchTarget& Target)
 {
 	if (Input.type == ScratchInputType_Block)
 	{
-		auto it = Map.find(Input.vals[0]);
-		if (it == Map.cend())
+		auto it = Loader.map.find(Input.vals[0]);
+		if (it == Loader.map.cend())
 			return 0;
 
 		ScratchChain* chain = new ScratchChain();
-		if (Loader_LoadChain(*chain, Target, (*it).second, Map))
+		if (Loader_LoadChain(*chain, Target, (*it).second, Loader))
 			return chain;
 		delete chain;
 		return 0; // Chain failed to load
@@ -277,6 +472,8 @@ ScratchMethod* Loader_LoadInput(const LoaderInput& Input, const JsnBlockMap& Map
 	{
 		switch (Input.type)
 		{
+		case ScratchInputType_Arg:
+			return new ScratchArg(atoi(Input.vals[0].c_str()));
 		case ScratchInputType_Number:
 		case ScratchInputType_PositiveNum:
 		case ScratchInputType_PositiveInt:

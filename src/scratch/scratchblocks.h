@@ -7,7 +7,8 @@ class ScratchStack : private std::vector<ScratchValue>
 {
 public:
 	inline void Push(const ScratchValue& Value) { push_back(Value); }
-	ScratchValue Pop();
+	void Pop(size_t Count);
+	const ScratchValue& Peek(size_t Pos);
 };
 
 struct ScratchState
@@ -25,11 +26,21 @@ public:
 class ScratchLiteral : public ScratchMethod
 {
 public:
-	ScratchLiteral(const ScratchValue& Value) :m_value(Value) {}
+	ScratchLiteral(const ScratchValue& Value) : m_value(Value) {}
 	int Exec(ScratchState& State) override { State.ret = m_value; return 0; }
 
 private:
 	const ScratchValue m_value;
+};
+
+class ScratchArg : public ScratchMethod
+{
+public:
+	ScratchArg(int StackIndex) : m_index(StackIndex) {}
+	int Exec(ScratchState& State) override;
+
+private:
+	const int m_index;
 };
 
 // - Chain of scratch blocks to be executed
@@ -39,9 +50,13 @@ public:
 	ScratchChain() { }
 	~ScratchChain();
 
-	inline void AddOpcode(EScratchOpcode Op) {
+	inline void AddOpcode(EScratchOpcode Op)
+	{
 		m_ops.push_back(Op);
+		m_inputmap.push_back(m_inputs.size());
 	}
+
+	// - Adds an input to the current opcode
 	inline void AddInput(ScratchMethod* Input) {
 		m_inputs.push_back(Input);
 	}
@@ -51,16 +66,18 @@ public:
 	int Exec(ScratchState& State);
 
 private:
-	ScratchMethod* NextInput(size_t& InputCount);
-	inline void BinOpHack(ScratchState& State, size_t& InputCount, ScratchValue& First)
+	ScratchMethod* GetInput(size_t Block, size_t Index);
+	size_t GetInputCount(size_t Block);
+	inline void BinOpHack(ScratchState& State, size_t Block, ScratchValue& First)
 	{
-		NextInput(InputCount)->Exec(State);
+		GetInput(Block, 0)->Exec(State);
 		First = State.ret;
-		NextInput(InputCount)->Exec(State);
+		GetInput(Block, 1)->Exec(State);
 	}
 
 	std::vector<EScratchOpcode> m_ops;
 	std::vector<ScratchMethod*> m_inputs;
+	std::vector<size_t> m_inputmap; // Maps block pos to its available inputs
 };
 
 class Scratch_NotImplemented : public ScratchMethod

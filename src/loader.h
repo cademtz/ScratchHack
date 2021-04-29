@@ -4,11 +4,18 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <set>
+
+class ScratchMethod;
+struct LoaderBlock;
+typedef std::map<const LoaderBlock*, ScratchMethod*> ScratchBlockMap;
+typedef std::map<std::string, LoaderBlock> JsnBlockMap;
 
 enum EScratchInputType
 {
-	ScratchInputType_Block = 0,
+	// Reserved for loader
+	ScratchInputType_Arg	= -2,
+	ScratchInputType_Block	= -1,
+
 	ScratchInputType_Number = 4,
 	ScratchInputType_PositiveNum,
 	ScratchInputType_PositiveInt,
@@ -30,9 +37,8 @@ enum EScratchShadow
 
 struct LoaderMutation
 {
-	//std::string proccode; // Isn't unique. Useless here lol
-	std::set<std::string> argIds;
-	//std::string argNames; // Same here
+	std::string proccode;
+	std::map<std::string, std::string> argmap; // Maps arg name to coresponding arg setter key
 	bool warp;
 };
 
@@ -42,14 +48,26 @@ struct LoaderInput
 	int type;
 };
 
+struct LoaderField {
+	std::vector<std::string> vals; // Has at least 1
+};
+
 struct LoaderBlock
 {
 	LoaderMutation mutation;
 	std::map<std::string, LoaderInput> inputs;
-	std::string next;
+	std::map<std::string, LoaderField> fields;
+	const LoaderBlock* _next;
+	const LoaderBlock* _parent;
 	int opcode;
 	bool topLevel;
 	bool hasMutation;
+};
+
+struct LoaderState
+{
+	ScratchBlockMap& loaded;
+	const JsnBlockMap& map;
 };
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree);

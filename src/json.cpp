@@ -69,6 +69,7 @@ bool Json_StrictToString(const char* Json, jsmntok_t* Tk, std::string* out_Str)
 	if (Tk->type != JSMN_STRING)
 		return false;
 
+	out_Str->clear();
 	for (int i = Tk->start; i < Tk->end; ++i)
 	{
 		if (Json[i] == '\\')
