@@ -13,8 +13,9 @@ typedef std::map<std::string, LoaderBlock> JsnBlockMap;
 enum EScratchInputType
 {
 	// Reserved for loader
-	ScratchInputType_Arg	= -2,
-	ScratchInputType_Block	= -1,
+	ScratchInputType_Arg	= -3,
+	ScratchInputType_Block	= -2,
+	ScratchInputType_Inline = -1,
 
 	ScratchInputType_Number = 4,
 	ScratchInputType_PositiveNum,
@@ -33,6 +34,13 @@ enum EScratchShadow
 	ScratchShadow_Used = 1,
 	ScratchShadow_None,
 	ScratchShadow_Unused,
+};
+
+enum ELoaderBlockFlags
+{
+	LoaderBlockFlag_TopLevel	= (1 << 0),
+	LoaderBlockFlag_Mutation	= (1 << 1),
+	LoaderBlockFlag_Inline		= (1 << 2), // - Should be inlined
 };
 
 struct LoaderMutation
@@ -57,11 +65,10 @@ struct LoaderBlock
 	LoaderMutation mutation;
 	std::map<std::string, LoaderInput> inputs;
 	std::map<std::string, LoaderField> fields;
-	const LoaderBlock* _next;
-	const LoaderBlock* _parent;
+	const LoaderBlock* next;
+	const LoaderBlock* parent;
 	int opcode;
-	bool topLevel;
-	bool hasMutation;
+	int flags; // ORed values from ELoaderBlockFlags
 };
 
 struct LoaderState

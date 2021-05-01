@@ -56,6 +56,9 @@ int main()
 	for (auto& target : tree.Targets())
 	{
 		printf("Target \"%s\":\n", target.Name().c_str());
+		if (target.Name() != "main")
+			continue;
+
 		for (auto& chain : target.Chains())
 		{
 			if (chain.Code().front() != event_whenflagclicked)

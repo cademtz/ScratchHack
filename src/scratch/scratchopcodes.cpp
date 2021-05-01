@@ -6,6 +6,7 @@ static const struct {
 } _ScratchOpcode_map[] =
 {
 	{ "ScratchOpcode_unknown",		   ScratchOpcode_unknown },
+	{ "ScratchOpcode_push",		       ScratchOpcode_push },
 
 	{ "event_whentouchingobject",	   event_whentouchingobject },
 	{ "event_touchingobjectmenu",	   event_touchingobjectmenu },
@@ -192,6 +193,63 @@ static const struct {
 	{ "pen_menu_colorParam",           pen_menu_colorParam },
 };
 
+// - List of opcodes that will return a value
+static const EScratchOpcode _ScratchOpcode_hasRet[] =
+{
+	motion_xposition,
+	motion_yposition,
+	motion_direction,
+
+	looks_costumenumbername,
+	looks_backdropnumbername,
+	looks_size,
+
+	sound_volume,
+
+	sensing_touchingobject,
+	sensing_touchingobjectmenu,
+	sensing_touchingcolor,
+	sensing_answer,
+	sensing_keypressed,
+	sensing_mousedown,
+	sensing_mousex,
+	sensing_mousey,
+	sensing_loudness,
+	sensing_timer,
+	sensing_of,
+	sensing_current,
+	sensing_dayssince2000,
+	sensing_username,
+
+	argument_reporter_string_number,
+	argument_reporter_boolean,
+
+	// Of course, every operator opcode returns something
+	operator_add,
+	operator_subtract,
+	operator_multiply,
+	operator_divide,
+	operator_random,
+	operator_lt,
+	operator_equals,
+	operator_gt,
+	operator_and,
+	operator_or,
+	operator_join,
+	operator_letter_of,
+	operator_length,
+	operator_contains,
+	operator_mod,
+	operator_round,
+	operator_mathop,
+
+	data_variable,
+	data_itemoflist,
+	data_itemnumoflist,
+	data_lengthoflist,
+	data_listcontainsitem,
+};
+
 int ScratchOpcode_FromString(const char* Str, int Len)
 {
 	size_t len = Len < 0 ? strlen(Str) : Len;
@@ -210,6 +268,16 @@ const char* ScratchOpcode_ToString(int Opcode)
 	{
 		if (op.opcode == Opcode)
 			return op.name;
+	}
+	return 0;
+}
+
+int ScratchOpcode_HasReturn(int Opcode)
+{
+	for (auto op : _ScratchOpcode_hasRet)
+	{
+		if (op == Opcode)
+			return 1;
 	}
 	return 0;
 }

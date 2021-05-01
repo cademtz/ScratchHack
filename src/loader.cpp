@@ -15,6 +15,7 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInput, LoaderInput& Input);
 bool Loader_ParseField(const char* Json, jsmntok_t* JSNField, LoaderField& Field);
 bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut, bool GetArgs);
+bool Loader_InputSafety(const LoaderBlock& Block, const JsnBlockMap& Map, const ScratchTarget& Target);
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader);
 
@@ -26,7 +27,7 @@ bool Loader_LoadBlock(
 
 const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Loader);
 
-ScratchMethod* Loader_LoadInput(const LoaderInput& Input, LoaderState& Loader, ScratchTarget& Target);
+bool Loader_LoadInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target);
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 {
@@ -91,18 +92,22 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	// So all getter blocks will be given an appropriate stack index to use
 	for (auto& pair : map) // Check all blocks
 	{
+		if (!Loader_InputSafety(pair.second, map, *target))
+			return false;
+
 		block = &pair.second;
 		if (block->opcode != argument_reporter_boolean &&
 			block->opcode != argument_reporter_string_number)
 			continue; // Only care about these
 
-		if (!block->_parent)
+		if (!block->parent)
 			continue; // Detached arg reporters exist when you edit a custom block and remove arg(s)
 
 		proto = (LoaderBlock*)Loader_GetProto(*block, state); // zzz
 		if (!proto)
 			return assert(0 && "Unknown procedure prototype"), false;
 
+		// Index in alphabetical order.
 		int index = -1;
 		for (auto& pair : proto->mutation.argmap)
 		{
@@ -159,7 +164,7 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	for (auto& pair : map)
 	{
 		// Not top level or already loaded
-		if (!pair.second.topLevel || loaded.find(&pair.second) != loaded.end())
+		if (!(pair.second.flags & LoaderBlockFlag_TopLevel) || loaded.find(&pair.second) != loaded.end())
 			continue;
 
 		target->Chains().emplace_back();
@@ -179,6 +184,7 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 {
 	std::string op, next, parent;
 	jsmntok_t* j_inputs, * j_fields, * j_pair, * j_mut;
+	bool topLevel;
 	union
 	{
 		LoaderInput* input;
@@ -190,14 +196,14 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 		"opcode",	&op,
 		"fields",	&j_fields,
 		"inputs",	&j_inputs,
-		"topLevel",	&Block.topLevel,
+		"topLevel",	&topLevel,
 		"next",		&next,
 		"parent",	&parent))
 		return false;
 
-	if (!next.empty() && !(Block._next = Loader_Find(Map, next)))
+	if (!next.empty() && !(Block.next = Loader_Find(Map, next)))
 		return assert(0 && "Undefined reference to next block"), false; 
-	if (!parent.empty() && !(Block._parent = Loader_Find(Map, parent)))
+	if (!parent.empty() && !(Block.parent = Loader_Find(Map, parent)))
 		return assert(0 && "Undefined reference to parent block"), false;
 
 	Block.opcode = ScratchOpcode_FromString(op.c_str());
@@ -205,6 +211,13 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 		return assert(0 && "Scratch opcode string unknown"), false;
 
 	LOADER_LOG("\t%s\n", op.c_str());
+
+	if (j_mut)
+		Block.flags |= LoaderBlockFlag_Mutation;
+	if (topLevel)
+		Block.flags |= LoaderBlockFlag_TopLevel;
+	if (!Block.next && ScratchOpcode_HasReturn(Block.opcode))
+		Block.flags |= LoaderBlockFlag_Inline;
 
 	j_pair = Json_StartObject(j_inputs);
 	for (int i = 0; i < j_inputs->size; ++i, j_pair = Json_Next(j_pair))
@@ -222,8 +235,7 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 			return false;
 	}
 
-	Block.hasMutation = j_mut != 0;
-	if (Block.hasMutation &&
+	if ((Block.flags & LoaderBlockFlag_Mutation) &&
 		!Loader_ParseMutation(Json, j_mut, Block.mutation, Block.opcode == procedures_prototype))
 		return false;
 
@@ -337,13 +349,24 @@ bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& M
 	return true;
 }
 
+bool Loader_InputSafety(const LoaderBlock& Block, const JsnBlockMap& Map, const ScratchTarget& Target)
+{
+	for (auto& pair : Block.inputs)
+	{
+		if (pair.second.type == ScratchInputType_Block &&
+			Map.find(pair.second.vals[0]) == Map.cend())
+			return assert(0 && "Bad reference to block in input"), false;
+	}
+	return true;
+}
+
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader)
 {
 	Loader.loaded[&BlockInfo] = &Chain;
 	if (!Loader_LoadBlock(Chain, BlockInfo, Loader, Target))
 		return false;
 
-	for (const LoaderBlock* block = BlockInfo._next; block; block = block->_next)
+	for (const LoaderBlock* block = BlockInfo.next; block; block = block->next)
 	{
 		if (!Loader_LoadBlock(Chain, *block, Loader, Target))
 			return false;
@@ -360,17 +383,26 @@ bool Loader_LoadBlock(
 {
 	const LoaderBlock* l_callee = 0;
 	const LoaderBlock* proto = 0;
-	ScratchMethod* input;
 	union
 	{
-		ScratchMethod* const* pCallee;
+		ScratchMethod* const* pCallee = 0;
+		const LoaderBlock* block;
 		ScratchMethod* callee;
+		ScratchMethod* input;
 		ScratchChain* chain;
 	}; // blame scratch mutations for this finicky code
 
 	LOADER_LOG("\tLoadBlock %s\n", ScratchOpcode_ToString(BlockInfo.opcode));
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
 		return false;
+	else if (BlockInfo.opcode == argument_reporter_boolean ||
+		BlockInfo.opcode == argument_reporter_string_number)
+		printf("");
+	for (auto it = BlockInfo.inputs.rbegin(); it != BlockInfo.inputs.rend(); ++it)
+	{
+		if (!Loader_LoadInput((*it).second, Chain, Loader, Target))
+			return assert(0 && "bruhh"), false;
+	}
 
 	Chain.AddOpcode((EScratchOpcode)BlockInfo.opcode);
 
@@ -381,8 +413,8 @@ bool Loader_LoadBlock(
 		if (!proto)
 			return false;
 
-		// For caller: Get the mutation being called
-		if (!(l_callee = proto->_parent) ||
+		// Get the procedure being called
+		if (!(l_callee = proto->parent) ||
 			l_callee->opcode != procedures_definition)
 			return false;
 
@@ -408,10 +440,24 @@ bool Loader_LoadBlock(
 	for (auto& l_input : BlockInfo.inputs)
 	{
 		LOADER_LOG("\t\tInput %s\n", l_input.first.c_str());
-		if (!(input = Loader_LoadInput(l_input.second, Loader, Target)))
-			return false;
-		Chain.AddInput(input);
+		if (l_input.second.type != ScratchInputType_Block)
+			continue;
+
+		block = Loader_Find(Loader.map, l_input.second.vals[0]);
+		if (!(block->flags & LoaderBlockFlag_Inline))
+		{
+			ScratchChain* chain = new ScratchChain();
+			if (!Loader_LoadChain(*chain, Target, *block, Loader))
+			{
+				delete chain;
+				return false;
+			}
+			Chain.AddInput(chain);
+		}
 	}
+
+	if (BlockInfo.opcode == procedures_call)
+		Chain.AddInput(new ScratchPop(proto->mutation.argmap.size()));
 
 	return true;
 }
@@ -445,7 +491,7 @@ const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Lo
 	else if (BlockInfo.opcode == argument_reporter_boolean ||
 		BlockInfo.opcode == argument_reporter_string_number)
 	{
-		for (block = BlockInfo._parent; block && block->_parent; block = block->_parent);
+		for (block = BlockInfo.parent; block && block->parent; block = block->parent);
 
 		if (block && block->opcode == procedures_definition)
 			return Loader_GetProto(*block, Loader);
@@ -454,26 +500,28 @@ const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Lo
 	return 0;
 }
 
-ScratchMethod* Loader_LoadInput(const LoaderInput& Input, LoaderState& Loader, ScratchTarget& Target)
+bool Loader_LoadInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target)
 {
 	if (Input.type == ScratchInputType_Block)
 	{
-		auto it = Loader.map.find(Input.vals[0]);
-		if (it == Loader.map.cend())
-			return 0;
-
-		ScratchChain* chain = new ScratchChain();
-		if (Loader_LoadChain(*chain, Target, (*it).second, Loader))
-			return chain;
-		delete chain;
-		return 0; // Chain failed to load
+		const LoaderBlock* block = Loader_Find(Loader.map, Input.vals[0]);
+		if (block->flags & LoaderBlockFlag_Inline)
+			return Loader_LoadBlock(Chain, *block, Loader, Target);
+		else
+		{
+			return true;
+		}
+		return false; // Block failed to load
 	}
 	else
 	{
+		ScratchMethod* input = 0;
+
 		switch (Input.type)
 		{
 		case ScratchInputType_Arg:
-			return new ScratchArg(atoi(Input.vals[0].c_str()));
+			input = new ScratchArg(atoi(Input.vals[0].c_str()));
+			break;
 		case ScratchInputType_Number:
 		case ScratchInputType_PositiveNum:
 		case ScratchInputType_PositiveInt:
@@ -481,11 +529,16 @@ ScratchMethod* Loader_LoadInput(const LoaderInput& Input, LoaderState& Loader, S
 		case ScratchInputType_Angle:
 		case ScratchInputType_Color:
 		case ScratchInputType_String:
-			return new ScratchLiteral(Input.vals[0].c_str());
+			input = new ScratchLiteral(Input.vals[0].c_str()); break;
 		default:
-			return new Scratch_NotImplemented();
+			input = new Scratch_NotImplemented();
 		}
+
+		assert(input);
+		Chain.AddOpcode(ScratchOpcode_push);
+		Chain.AddInput(input);
+		return true;
 	}
 
-	return 0;
+	return false;
 }

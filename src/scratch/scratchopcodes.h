@@ -3,10 +3,14 @@
 // - Returns a value from 'EScratchOpcode' or 0
 int ScratchOpcode_FromString(const char* Str, int Len = -1);
 const char* ScratchOpcode_ToString(int Opcode);
+int ScratchOpcode_HasReturn(int Opcode);
 
 enum EScratchOpcode
 {
+	// Reserved
 	ScratchOpcode_unknown,
+	ScratchOpcode_push, // - Executes input and pushes return val
+	ScratchOpcode_popn, // - Pops a constant amount (n) off stack
 
 	event_whentouchingobject,
 	event_touchingobjectmenu,

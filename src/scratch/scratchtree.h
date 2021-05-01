@@ -61,7 +61,10 @@ class ScratchValue
 {
 public:
 	ScratchValue() : m_value("0"), m_number(0), m_types(ScratchType_Number) { }
-	ScratchValue(const char* Value) { Set(Value); }
+
+	template <class T>
+	ScratchValue(const T& Value) { Set(Value); }
+	//ScratchValue(const std::string& Value) { Set(Value); }
 
 	inline bool IsType(int Types) const { return m_types & Types; }
 	inline int GetTypes() const { return m_types; }
