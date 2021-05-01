@@ -15,7 +15,8 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 bool Loader_ParseInput(const char* Json, jsmntok_t* JSNInput, LoaderInput& Input);
 bool Loader_ParseField(const char* Json, jsmntok_t* JSNField, LoaderField& Field);
 bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& Mut, bool GetArgs);
-bool Loader_InputSafety(const LoaderBlock& Block, const JsnBlockMap& Map, const ScratchTarget& Target);
+bool Loader_InputSafety(LoaderBlock& Block, JsnBlockMap& Map, ScratchTarget& Target);
+bool Loader_FixArgs(JsnBlockMap::value_type& Pair, LoaderState& Loader);
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader);
 
@@ -27,7 +28,7 @@ bool Loader_LoadBlock(
 
 const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Loader);
 
-bool Loader_LoadInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target);
+bool Loader_InlineInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target);
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 {
@@ -49,8 +50,6 @@ bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree)
 {
 	jsmntok_t*		j_blocks, *j_pair;
-	LoaderBlock*	proto;
-	LoaderInput*	arg;
 	union // One-time use
 	{
 		LoaderBlock*	block;
@@ -89,78 +88,15 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	}
 
 	// This scratch VM uses stack index for arguments
-	// So all getter blocks will be given an appropriate stack index to use
+	// So some syntax will be edited to use an index instead of name
 	for (auto& pair : map) // Check all blocks
 	{
-		if (!Loader_InputSafety(pair.second, map, *target))
+		if (!Loader_InputSafety(pair.second, map, *target) ||
+			!Loader_FixArgs(pair, state))
 			return false;
-
-		block = &pair.second;
-		if (block->opcode != argument_reporter_boolean &&
-			block->opcode != argument_reporter_string_number)
-			continue; // Only care about these
-
-		if (!block->parent)
-			continue; // Detached arg reporters exist when you edit a custom block and remove arg(s)
-
-		proto = (LoaderBlock*)Loader_GetProto(*block, state); // zzz
-		if (!proto)
-			return assert(0 && "Unknown procedure prototype"), false;
-
-		// Index in alphabetical order.
-		int index = -1;
-		for (auto& pair : proto->mutation.argmap)
-		{
-			if (pair.first == block->fields["VALUE"].vals[0])
-			{
-				index = -index - 1;
-				break;
-			}
-			--index;
-		}
-
-		if (index < 0)
-			return assert(0 && "Using mismatched args, couldn't make index"), false;
-
-		arg = &block->inputs["ARG"];
-		arg->type = ScratchInputType_Arg;
-		arg->vals = { std::to_string(index) };
 	}
 
-	// Remap caller inputs to arg names so they are passed in alphabetical order
-	for (auto& pair : map)
-	{
-		block = &pair.second;
-		if (block->opcode != procedures_call)
-			continue; // Only care about these
-
-		proto = (LoaderBlock*)Loader_GetProto(*block, state); // zzz
-		if (!proto)
-			return assert(0 && "Unknown procedure prototype"), false;
-
-		for (auto& arg_pair : proto->mutation.argmap)
-		{
-			auto it = block->inputs.find(arg_pair.second);
-			if (it == block->inputs.end())
-				return assert(0 && "Procedure call is missing some args"), false;
-
-			block->inputs.emplace(arg_pair.first, std::move((*it).second));
-			block->inputs.erase(it); // Associative container inserts don't invalidate iterators
-		}
-
-		for (auto it = block->inputs.begin(); it != block->inputs.end();)
-		{
-			if (!Loader_Find(proto->mutation.argmap, (*it).first))
-			{
-				LOADER_LOG("Warning: Method \"%s\" has unused arg \"%s\"\n", pair.first.c_str(), (*it).first.c_str());
-				it = block->inputs.erase(it);
-			}
-			else
-				++it;
-		}
-	}
-
-	// Okay okay, actually load the blocks in to the VM now
+	// Load the blocks in to the VM
 	for (auto& pair : map)
 	{
 		// Not top level or already loaded
@@ -349,14 +285,88 @@ bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& M
 	return true;
 }
 
-bool Loader_InputSafety(const LoaderBlock& Block, const JsnBlockMap& Map, const ScratchTarget& Target)
+bool Loader_InputSafety(LoaderBlock& Block, JsnBlockMap& Map, ScratchTarget& Target)
 {
+	LoaderBlock* block;
 	for (auto& pair : Block.inputs)
 	{
-		if (pair.second.type == ScratchInputType_Block &&
-			Map.find(pair.second.vals[0]) == Map.cend())
-			return assert(0 && "Bad reference to block in input"), false;
+		if (pair.second.type == ScratchInputType_Block)
+		{
+			auto it = Map.find(pair.second.vals[0]);
+			if (it == Map.end())
+				return assert(0 && "Bad reference to block in input"), false;
+			block = &(*it).second;
+
+			if (block->flags & LoaderBlockFlag_Inline)
+				pair.second.type = ScratchInputType_Inline;
+		}
 	}
+	return true;
+}
+
+bool Loader_FixArgs(JsnBlockMap::value_type& Pair, LoaderState& Loader)
+{
+	const LoaderBlock* proto;
+	LoaderBlock* block = &Pair.second;
+	LoaderInput* arg;
+
+	if (block->opcode != procedures_call &&
+		block->opcode != argument_reporter_boolean &&
+		block->opcode != argument_reporter_string_number)
+		return true;
+
+	if (block->opcode != procedures_call && !block->parent)
+		return true; // Detached arg reporters exist when you edit a custom block and remove arg(s)
+
+	proto = Loader_GetProto(*block, Loader);
+	if (!proto)
+		return assert(0 && "Unknown procedure prototype"), false;
+
+	if (block->opcode == procedures_call)
+	{
+		for (auto& arg_pair : proto->mutation.argmap)
+		{
+			auto it = block->inputs.find(arg_pair.second);
+			if (it == block->inputs.end())
+				return assert(0 && "Procedure call is missing some args"), false;
+
+			block->inputs.emplace(arg_pair.first, std::move((*it).second));
+			block->inputs.erase(it); // Associative container inserts don't invalidate iterators
+		}
+
+		for (auto it = block->inputs.begin(); it != block->inputs.end();)
+		{
+			if (!Loader_Find(proto->mutation.argmap, (*it).first))
+			{
+				LOADER_LOG("Warning: Method \"%s\" has unused arg \"%s\"\n", Pair.first.c_str(), (*it).first.c_str());
+				it = block->inputs.erase(it);
+			}
+			else
+				++it;
+		}
+	}
+	else
+	{
+		// Index in alphabetical order.
+		int index = -1;
+		for (auto& pair : proto->mutation.argmap)
+		{
+			if (pair.first == block->fields["VALUE"].vals[0])
+			{
+				index = -index - 1;
+				break;
+			}
+			--index;
+		}
+
+		if (index < 0)
+			return assert(0 && "Using mismatched args, couldn't make index"), false;
+
+		arg = &block->inputs["ARG"];
+		arg->type = ScratchInputType_Arg;
+		arg->vals = { std::to_string(index) };
+	}
+	
 	return true;
 }
 
@@ -392,16 +402,20 @@ bool Loader_LoadBlock(
 		ScratchChain* chain;
 	}; // blame scratch mutations for this finicky code
 
-	LOADER_LOG("\tLoadBlock %s\n", ScratchOpcode_ToString(BlockInfo.opcode));
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
 		return false;
 	else if (BlockInfo.opcode == argument_reporter_boolean ||
 		BlockInfo.opcode == argument_reporter_string_number)
 		printf("");
+
+	// Inline certain inputs that don't need branching logic
 	for (auto it = BlockInfo.inputs.rbegin(); it != BlockInfo.inputs.rend(); ++it)
 	{
-		if (!Loader_LoadInput((*it).second, Chain, Loader, Target))
-			return assert(0 && "bruhh"), false;
+		if ((*it).second.type != ScratchInputType_Block)
+		{
+			if (!Loader_InlineInput((*it).second, Chain, Loader, Target))
+				return false;
+		}
 	}
 
 	Chain.AddOpcode((EScratchOpcode)BlockInfo.opcode);
@@ -437,17 +451,13 @@ bool Loader_LoadBlock(
 		Chain.AddInput(callee);
 	}
 
+	// Load ScratchInputType_Block as an input for this opcode
 	for (auto& l_input : BlockInfo.inputs)
 	{
-		LOADER_LOG("\t\tInput %s\n", l_input.first.c_str());
-		if (l_input.second.type != ScratchInputType_Block)
-			continue;
-
-		block = Loader_Find(Loader.map, l_input.second.vals[0]);
-		if (!(block->flags & LoaderBlockFlag_Inline))
+		if (l_input.second.type == ScratchInputType_Block)
 		{
 			ScratchChain* chain = new ScratchChain();
-			if (!Loader_LoadChain(*chain, Target, *block, Loader))
+			if (!Loader_LoadChain(*chain, Target, *Loader_Find(Loader.map, l_input.second.vals[0]), Loader))
 			{
 				delete chain;
 				return false;
@@ -456,6 +466,7 @@ bool Loader_LoadBlock(
 		}
 	}
 
+	// Give the call opcode a helper to pop args not known at runtime
 	if (BlockInfo.opcode == procedures_call)
 		Chain.AddInput(new ScratchPop(proto->mutation.argmap.size()));
 
@@ -500,20 +511,11 @@ const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Lo
 	return 0;
 }
 
-bool Loader_LoadInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target)
+bool Loader_InlineInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target)
 {
-	if (Input.type == ScratchInputType_Block)
-	{
-		const LoaderBlock* block = Loader_Find(Loader.map, Input.vals[0]);
-		if (block->flags & LoaderBlockFlag_Inline)
-			return Loader_LoadBlock(Chain, *block, Loader, Target);
-		else
-		{
-			return true;
-		}
-		return false; // Block failed to load
-	}
-	else
+	if (Input.type == ScratchInputType_Inline)
+		return Loader_LoadBlock(Chain, *Loader_Find(Loader.map, Input.vals[0]), Loader, Target);
+	else if (Input.type != ScratchInputType_Block)
 	{
 		ScratchMethod* input = 0;
 
@@ -540,5 +542,5 @@ bool Loader_LoadInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState
 		return true;
 	}
 
-	return false;
+	return assert(0 && "Can't inline ScratchInputType_Block"), false;
 }
