@@ -17,6 +17,7 @@ enum EScratchInputType
 	ScratchInputType_Block	= -2,
 	ScratchInputType_Inline = -1,
 
+	ScratchInputType_Null = 1, // Undocumented, always appears before a JSON null
 	ScratchInputType_Number = 4,
 	ScratchInputType_PositiveNum,
 	ScratchInputType_PositiveInt,
@@ -43,17 +44,23 @@ enum ELoaderBlockFlags
 	LoaderBlockFlag_Inline		= (1 << 2), // - Should be inlined
 };
 
+struct ParsedArg
+{
+	std::string id;
+	std::string deefault;
+};
+
 struct ParsedMutation
 {
 	std::string proccode;
-	std::map<std::string, std::string> argmap; // Maps arg name to coresponding arg setter key
+	std::map<std::string, ParsedArg> argmap; // Maps arg name to coresponding arg setter key
 	bool warp;
 };
 
 struct ParsedInput
 {
 	std::vector<std::string> vals; // Has at least 1
-	int type;
+	EScratchInputType type;
 };
 
 struct ParsedField {

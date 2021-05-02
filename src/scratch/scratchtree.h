@@ -65,7 +65,6 @@ public:
 
 	template <class T>
 	ScratchValue(const T& Value) { Set(Value); }
-	//ScratchValue(const std::string& Value) { Set(Value); }
 
 	inline bool IsType(int Types) const { return m_types & Types; }
 	inline int GetTypes() const { return m_types; }

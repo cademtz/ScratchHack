@@ -229,7 +229,7 @@ bool CScratchLoader::ParseInput(jsmntok_t* JsnInputArr, ParsedInput& Input)
 	if (data->type == JSMN_STRING)
 	{
 		Input.type = ScratchInputType_Block;
-		Input.vals.push_back(Json_ToString(m_json, data));
+		Input.vals = { Json_ToString(m_json, data) };
 		return true;
 	}
 	else if (data->type == JSMN_ARRAY)
@@ -239,7 +239,7 @@ bool CScratchLoader::ParseInput(jsmntok_t* JsnInputArr, ParsedInput& Input)
 			!Json_GetInt(m_json, type, &type_val))
 			return assert(0 && "Expected type int and value string for Scratch input's non-shadow value"), false;
 
-		Input.type = type_val;
+		Input.type = (EScratchInputType)type_val;
 		for (int i = 1; i < data->size; ++i, next = Json_Next(next))
 			Input.vals.push_back(Json_ToString(m_json, next));
 
@@ -247,7 +247,9 @@ bool CScratchLoader::ParseInput(jsmntok_t* JsnInputArr, ParsedInput& Input)
 	}
 	else if (Json_IsNull(m_json, data))
 	{
-		LOADER_LOG("Warning: Got JSON null for input value. Ignoring input.\n");
+		Input.type = ScratchInputType_Null;
+		Input.vals = { "0" };
+		LOADER_LOG("Warning: Got JSON null for input value\n");
 		return true;
 	}
 
@@ -280,7 +282,7 @@ bool CScratchLoader::ParseMutation(jsmntok_t* JsnMut, ParsedMutation& Mut, bool 
 	// https://en.scratch-wiki.info/wiki/Scratch_File_Format#Mutations
 
 	std::string	warp, jsnstr;
-	std::vector<std::string> names;
+	std::vector<ParsedArg> args;
 	jsmntok_t*	j_next;
 	JsonParser	p;
 
@@ -293,34 +295,53 @@ bool CScratchLoader::ParseMutation(jsmntok_t* JsnMut, ParsedMutation& Mut, bool 
 	if (!Mut.warp && warp != "false")
 		return false; // Bad data, not a JSON bool
 
+	const char* dump = m_json + JsnMut->start;
+
 	if (GetArgs)
 	{
-		// Parse argumentnames array
-		if (!Json_ParseObject(m_json, JsnMut, "argumentnames", &jsnstr) ||
-			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
-			!(j_next = Json_StartArray(&p.tokens[0])))
-			return false; // Invalid JSON string
-
-		// Get all names
-		for (int i = 0; i < p.tokens[0].size; ++i, j_next = Json_Next(j_next))
-		{
-			if (j_next->type != JSMN_STRING)
-				return assert(0 && "Name array contains non-string"), false;
-			names.push_back(Json_ToString(jsnstr.c_str(), j_next));
-		}
-
 		// Parse argumentids array
 		if (!Json_ParseObject(m_json, JsnMut, "argumentids", &jsnstr) ||
 			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
 			!(j_next = Json_StartArray(&p.tokens[0])))
 			return false; // Invalid JSON string
 
-		if (p.tokens[0].size != names.size())
-			return assert(0 && "Mismatched Name and ID arrays"), false;
+		// Get all IDs
+		for (int i = 0; i < p.tokens[0].size; ++i, j_next = Json_Next(j_next))
+		{
+			if (j_next->type != JSMN_STRING)
+				return assert(0 && "Name array contains non-string"), false;
+			args.push_back({ Json_ToString(jsnstr.c_str(), j_next) });
+		}
+
+		// Parse argumentdefaults array
+		if (!Json_ParseObject(m_json, JsnMut, "argumentdefaults", &jsnstr) ||
+			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
+			!(j_next = Json_StartArray(&p.tokens[0])))
+			return false; // Invalid JSON string
+
+		if (p.tokens[0].size < args.size()) // Extra defaults are left over if mutation args get removed in Scratch editor
+			return assert(0 && "Mismatched mutation arg arrays"), false;
+
+		// Get all defaults
+		for (int i = 0; i < args.size(); ++i, j_next = Json_Next(j_next))
+		{
+			if (j_next->type != JSMN_STRING)
+				return assert(0 && "Name array contains non-string"), false;
+			args[i].deefault = Json_ToString(jsnstr.c_str(), j_next);
+		}
+
+		// Parse argumentnames array
+		if (!Json_ParseObject(m_json, JsnMut, "argumentnames", &jsnstr) ||
+			p.Parse(jsnstr.c_str(), jsnstr.length()) < 1 ||
+			!(j_next = Json_StartArray(&p.tokens[0])))
+			return false; // Invalid JSON string
+
+		if (p.tokens[0].size != args.size())
+			return assert(0 && "Mismatched mutation arg arrays"), false;
 
 		// Populate map with list of names' corresponding Arg IDs
 		for (int i = 0; i < p.tokens[0].size; ++i, j_next = Json_Next(j_next))
-			Mut.argmap[names[i]] = Json_ToString(jsnstr.c_str(), j_next);
+			Mut.argmap[Json_ToString(jsnstr.c_str(), j_next)] = std::move(args[i]);
 	}
 	return true;
 }
@@ -352,8 +373,9 @@ bool CScratchLoader::InputSafety(ParsedBlock& Block)
 bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 {
 	const ParsedBlock* proto;
+	const ParsedArg* arg;
 	ParsedBlock* block = &Pair.second;
-	ParsedInput* arg;
+	ParsedInput* input;
 
 	if (block->opcode != procedures_call &&
 		block->opcode != argument_reporter_boolean &&
@@ -371,7 +393,7 @@ bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 	{
 		for (auto& arg_pair : proto->mutation.argmap)
 		{
-			auto it = block->inputs.find(arg_pair.second);
+			auto it = block->inputs.find(arg_pair.second.id);
 			if (it == block->inputs.end())
 				return assert(0 && "Procedure call is missing some args"), false;
 
@@ -381,13 +403,22 @@ bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 
 		for (auto it = block->inputs.begin(); it != block->inputs.end();)
 		{
-			if (!Loader_Find(proto->mutation.argmap, (*it).first))
+			arg = Loader_Find(proto->mutation.argmap, (*it).first);
+			if (!arg)
 			{
 				LOADER_LOG("Warning: Method \"%s\" has unused arg \"%s\"\n", Pair.first.c_str(), (*it).first.c_str());
 				it = block->inputs.erase(it);
+				continue;
 			}
-			else
-				++it;
+
+			if ((*it).second.type == ScratchInputType_Null)
+			{
+				// Use default arg, specified by prototype
+				input = &(*it).second;
+				input->type = ScratchInputType_String;
+				input->vals = { arg->deefault };
+			}
+			++it;
 		}
 	}
 	else
@@ -407,9 +438,9 @@ bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 		if (index < 0)
 			return assert(0 && "Using mismatched args, couldn't make index"), false;
 
-		arg = &block->inputs["ARG"];
-		arg->type = ScratchInputType_Arg;
-		arg->vals = { std::to_string(index) };
+		input = &block->inputs["ARG"];
+		input->type = ScratchInputType_Arg;
+		input->vals = { std::to_string(index) };
 	}
 	
 	return true;
@@ -553,6 +584,8 @@ bool CScratchLoader::InlineInput(const ParsedInput& Input, ScratchChain& Chain)
 		case ScratchInputType_Arg:
 			input = new ScratchArg(atoi(Input.vals[0].c_str()));
 			break;
+		case ScratchInputType_Null:
+			input = new ScratchLiteral(0); break;
 		case ScratchInputType_Number:
 		case ScratchInputType_PositiveNum:
 		case ScratchInputType_PositiveInt:
