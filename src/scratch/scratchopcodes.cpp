@@ -243,7 +243,6 @@ static const EScratchOpcode _ScratchOpcode_hasRet[] =
 	operator_round,
 	operator_mathop,
 
-	data_variable,
 	data_itemoflist,
 	data_itemnumoflist,
 	data_lengthoflist,

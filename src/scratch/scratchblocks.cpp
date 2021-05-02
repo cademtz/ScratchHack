@@ -76,7 +76,6 @@ int ScratchChain::Exec(ScratchState& State)
 		{
 		case ScratchOpcode_push:
 			GetInput(block, 0)->Exec(State);
-			//State.stack.Push(State.ret);
 			break;
 
 			// Current event description, does nothing
@@ -94,7 +93,7 @@ int ScratchChain::Exec(ScratchState& State)
 		//case control_repeat:
 		case control_if:
 		case control_if_else:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			if (State.ret.GetBool())
 				GetInput(block, 0)->Exec(State);
 			else if (op == control_if_else)
@@ -103,7 +102,7 @@ int ScratchChain::Exec(ScratchState& State)
 
 		//case control_stop:
 		case control_wait:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			Sleep((DWORD)(State.ret.GetNumber() * 1000));
 			break;
 		//case control_wait_until:
@@ -121,15 +120,15 @@ int ScratchChain::Exec(ScratchState& State)
 
 		case looks_think:
 		case looks_say:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			SCRATCH_PRINT("looks_say: %s\n", State.ret.GetString().c_str());
 			break;
 
 		case looks_thinkforsecs:
 		case looks_sayforsecs:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			SCRATCH_PRINT("looks_sayforsecs: %s\n", State.ret.GetString().c_str());
-			State.stack.Pop(State.ret);//GetInput(block, 1)->Exec(State);
+			State.stack.Pop(State.ret);
 			Sleep((DWORD)(State.ret.GetNumber() * 1000));
 			break;
 
@@ -196,7 +195,7 @@ int ScratchChain::Exec(ScratchState& State)
 			break;
 
 		case operator_length:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			State.stack.Push((double)State.ret.GetString().length());
 			break;
 
@@ -207,7 +206,7 @@ int ScratchChain::Exec(ScratchState& State)
 			break;
 
 		case operator_round:
-			State.stack.Pop(State.ret);//GetInput(block, 0)->Exec(State);
+			State.stack.Pop(State.ret);
 			State.stack.Push(round(State.ret.GetNumber()));
 			break;
 

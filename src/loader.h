@@ -5,9 +5,9 @@
 #include <string>
 #include <map>
 
-class ScratchMethod;
+class ScratchChain;
 struct LoaderBlock;
-typedef std::map<const LoaderBlock*, ScratchMethod*> ScratchBlockMap;
+typedef std::map<LoaderBlock*, ScratchChain*> ScratchBlockMap;
 typedef std::map<std::string, LoaderBlock> JsnBlockMap;
 
 enum EScratchInputType
@@ -77,6 +77,29 @@ struct LoaderState
 	const JsnBlockMap& map;
 };
 
+class CScratchLoader
+{
+public:
+	CScratchLoader(const char* Json, size_t JsonLen = (size_t)-1);
+
+	bool ParseProject();
+	bool LoadProject(ScratchTree* Tree);
+
+private:
+	bool ParseTarget(jsmntok_t* JsnTarget, ScratchTarget& Target);
+
+	ScratchTree* m_tree = 0;
+	bool m_parsed = false;
+
+	const char* m_json;
+	size_t m_jsonLen;
+	jsmntok_t* m_tokens;
+
+	JsnBlockMap m_map;
+	ScratchBlockMap m_loaded;
+	std::vector<ScratchTarget*> m_targets;
+};
+
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree);
 
-bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree);
+bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTarget& Target, ScratchTree& Tree);

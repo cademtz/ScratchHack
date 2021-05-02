@@ -18,6 +18,7 @@ bool Loader_ParseMutation(const char* Json, jsmntok_t* JSNMut, LoaderMutation& M
 bool Loader_InputSafety(LoaderBlock& Block, JsnBlockMap& Map, ScratchTarget& Target);
 bool Loader_FixArgs(JsnBlockMap::value_type& Pair, LoaderState& Loader);
 
+bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree);
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader);
 
 bool Loader_LoadBlock(
@@ -29,6 +30,132 @@ bool Loader_LoadBlock(
 const LoaderBlock* Loader_GetProto(const LoaderBlock& BlockInfo, LoaderState& Loader);
 
 bool Loader_InlineInput(const LoaderInput& Input, ScratchChain& Chain, LoaderState& Loader, ScratchTarget& Target);
+
+CScratchLoader::CScratchLoader(const char* Json, size_t JsonLen)
+	: m_json(Json), m_jsonLen(JsonLen)
+{
+	if (JsonLen == (size_t)-1)
+		m_jsonLen = strlen(Json);
+}
+
+bool CScratchLoader::ParseProject()
+{
+	JsonParser p;
+	jsmntok_t* targets, * item;
+	std::string name;
+	bool isStage;
+
+	// Reset parser state
+	m_parsed = false;
+	m_map.clear();
+	m_loaded.clear();
+
+	if (p.Parse(m_json, m_jsonLen) < 1)
+		return assert(0 && "Failed to parse JSON"), false;
+
+	m_tokens = &p.tokens[0];
+	targets = Json_Find(m_json, m_tokens, "targets");
+
+	if (!targets || !(item = Json_StartArray(targets)))
+		return assert(0 && "Couldn't find targets in Scratch JSON project"), false;
+
+	for (int i = 0; i < targets->size; ++i, item = Json_Next(item))
+	{
+		if (!Json_ParseObject(m_json, item,
+			"name",		&name,
+			"isStage",	&isStage))
+			return assert(0 && "Couldn't parse Scratch JSON target"), false;
+
+		m_targets.emplace_back(new ScratchTarget(name.c_str(), isStage));
+		if (!ParseTarget(item, *m_targets.back()))
+		{
+			delete m_targets.back();
+			m_targets.pop_back();
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool CScratchLoader::LoadProject(ScratchTree* Tree)
+{
+	LoaderState	state = { m_loaded, m_map };
+	m_tree = Tree;
+
+	for (ScratchTarget* target : m_targets)
+	{
+		// Populate loaded map
+		for (auto& pair : m_map)
+		{
+			if (pair.second.flags & LoaderBlockFlag_TopLevel)
+			{
+				target->Chains().emplace_back();
+				m_loaded[&pair.second] = &target->Chains().back();
+			}
+		}
+
+		// Load the blocks in to the VM
+		for (auto& pair : m_loaded)
+		{
+			if (!Loader_LoadChain(*pair.second, *target, *pair.first, state))
+			{
+				m_tree = 0;
+				return false;
+			}
+		}
+	}
+
+	// By now, everything is safe to place in the tree
+	for (ScratchTarget* target : m_targets)
+	{
+		Tree->Targets().push_back(ScratchTarget("", false));
+		Tree->Targets().back() = std::move(*target);
+	}
+
+	m_tree = 0;
+	return true;
+}
+
+bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ScratchTarget& Target)
+{
+	jsmntok_t* j_blocks, * j_pair;
+	union // One-time use
+	{
+		LoaderBlock* block;
+		ScratchChain* chain;
+	};
+	std::string		name;
+	LoaderState		state = { m_loaded, m_map };
+
+	if (!Json_ParseObject(m_json, JsnTarget, "blocks", &j_blocks))
+		return assert(0 && "Scratch JSON target missing blocks array"), false;
+
+	// Map all keys to a LoaderBlock struct
+	j_pair = Json_StartObject(j_blocks);
+	for (int i = 0; i < j_blocks->size; ++i, j_pair = Json_Next(j_pair))
+		m_map.emplace(Json_ToString(m_json, j_pair), LoaderBlock());
+
+	// Re-iterate, fill all block structs and references
+	j_pair = Json_StartObject(j_blocks);
+	for (int i = 0; i < j_blocks->size; ++i, j_pair = Json_Next(j_pair))
+	{
+		LOADER_LOG("JSON ID %s\n", Json_ToString(m_json, j_pair).c_str());
+		block = &m_map[Json_ToString(m_json, j_pair)];
+		if (!Loader_ParseBlock(m_json, Json_Pair_Value(j_pair), *block, m_map))
+			return false;
+	}
+
+	// Prepare the syntax to better fit the VM, such as stack indexes for args
+	for (auto& pair : m_map) // Check all blocks
+	{
+		if (!Loader_InputSafety(pair.second, m_map, Target) ||
+			!Loader_FixArgs(pair, state))
+			return false;
+	}
+
+	return true;
+}
 
 bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree)
 {
@@ -82,6 +209,7 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 	j_pair = Json_StartObject(j_blocks);
 	for (int i = 0; i < j_blocks->size; ++i, j_pair = Json_Next(j_pair))
 	{
+		LOADER_LOG("JSON ID %s\n", Json_ToString(Json, j_pair).c_str());
 		block = &map[Json_ToString(Json, j_pair)];
 		if (!Loader_ParseBlock(Json, Json_Pair_Value(j_pair), *block, map))
 			return false;
@@ -96,21 +224,21 @@ bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTree& Tree
 			return false;
 	}
 
-	// Load the blocks in to the VM
+	// Populate loaded map
 	for (auto& pair : map)
 	{
-		// Not top level or already loaded
-		if (!(pair.second.flags & LoaderBlockFlag_TopLevel) || loaded.find(&pair.second) != loaded.end())
-			continue;
-
-		target->Chains().emplace_back();
-		chain = &target->Chains().back();
-
-		if (!Loader_LoadChain(*chain, *target, pair.second, state))
+		if (pair.second.flags & LoaderBlockFlag_TopLevel)
 		{
-			target->Chains().pop_back();
-			return false;
+			target->Chains().emplace_back();
+			loaded[&pair.second] = &target->Chains().back();
 		}
+	}
+
+	// Load the blocks in to the VM
+	for (auto& pair : loaded)
+	{
+		if (!Loader_LoadChain(*pair.second, *target, *pair.first, state))
+			return false;
 	}
 
 	return true;
@@ -126,6 +254,9 @@ bool Loader_ParseBlock(const char* Json, jsmntok_t* JSNBlock, LoaderBlock& Block
 		LoaderInput* input;
 		LoaderField* field;
 	};
+
+	if (JSNBlock->type == JSMN_ARRAY)
+		return true; // This happens when you leave a variable getter block detached... idk why...
 
 	j_mut = Json_Find(Json, JSNBlock, "mutation"); // Optional
 	if (!Json_ParseObject(Json, JSNBlock,
@@ -372,7 +503,7 @@ bool Loader_FixArgs(JsnBlockMap::value_type& Pair, LoaderState& Loader)
 
 bool Loader_LoadChain(ScratchChain& Chain, ScratchTarget& Target, const LoaderBlock& BlockInfo, LoaderState& Loader)
 {
-	Loader.loaded[&BlockInfo] = &Chain;
+	//Loader.loaded[&BlockInfo] = &Chain;
 	if (!Loader_LoadBlock(Chain, BlockInfo, Loader, Target))
 		return false;
 
@@ -395,9 +526,9 @@ bool Loader_LoadBlock(
 	const LoaderBlock* proto = 0;
 	union
 	{
-		ScratchMethod* const* pCallee = 0;
+		ScratchChain* const* pCallee = 0;
 		const LoaderBlock* block;
-		ScratchMethod* callee;
+		ScratchChain* callee;
 		ScratchMethod* input;
 		ScratchChain* chain;
 	}; // blame scratch mutations for this finicky code
@@ -432,21 +563,10 @@ bool Loader_LoadBlock(
 			l_callee->opcode != procedures_definition)
 			return false;
 
-		if (pCallee = Loader_Find(Loader.loaded, l_callee))
+		if (pCallee = Loader_Find(Loader.loaded, (LoaderBlock*)l_callee))
 			callee = *pCallee;
 		else // Not yet loaded. Load it ourselves.
-		{
-			// TODO: Have Loader_LoadTarget populate map with blank chains to avoid this code
-			Target.Chains().emplace_back();
-			chain = &Target.Chains().back();
-			if (!Loader_LoadChain(*chain, Target, *l_callee, Loader))
-			{
-				Target.Chains().pop_back();
-				return false;
-			}
-
-			callee = chain;
-		}
+			return assert(0 && "lel"), false;
 
 		Chain.AddInput(callee);
 	}
