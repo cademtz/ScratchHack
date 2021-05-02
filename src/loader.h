@@ -6,9 +6,9 @@
 #include <map>
 
 class ScratchChain;
-struct LoaderBlock;
-typedef std::map<LoaderBlock*, ScratchChain*> ScratchBlockMap;
-typedef std::map<std::string, LoaderBlock> JsnBlockMap;
+struct ParsedBlock;
+typedef std::map<ParsedBlock*, ScratchChain*> ScratchBlockMap;
+typedef std::map<std::string, ParsedBlock> JsnBlockMap;
 
 enum EScratchInputType
 {
@@ -43,63 +43,74 @@ enum ELoaderBlockFlags
 	LoaderBlockFlag_Inline		= (1 << 2), // - Should be inlined
 };
 
-struct LoaderMutation
+struct ParsedMutation
 {
 	std::string proccode;
 	std::map<std::string, std::string> argmap; // Maps arg name to coresponding arg setter key
 	bool warp;
 };
 
-struct LoaderInput
+struct ParsedInput
 {
 	std::vector<std::string> vals; // Has at least 1
 	int type;
 };
 
-struct LoaderField {
+struct ParsedField {
 	std::vector<std::string> vals; // Has at least 1
 };
 
-struct LoaderBlock
+struct ParsedBlock
 {
-	LoaderMutation mutation;
-	std::map<std::string, LoaderInput> inputs;
-	std::map<std::string, LoaderField> fields;
-	const LoaderBlock* next;
-	const LoaderBlock* parent;
+	ParsedMutation mutation;
+	std::map<std::string, ParsedInput> inputs;
+	std::map<std::string, ParsedField> fields;
+	const ParsedBlock* next;
+	const ParsedBlock* parent;
 	int opcode;
 	int flags; // ORed values from ELoaderBlockFlags
 };
 
-struct LoaderState
+struct ParsedTarget
 {
-	ScratchBlockMap& loaded;
-	const JsnBlockMap& map;
+	JsnBlockMap map;
+	ScratchBlockMap loaded;
+	std::string name;
+	bool isStage;
 };
 
 class CScratchLoader
 {
 public:
 	CScratchLoader(const char* Json, size_t JsonLen = (size_t)-1);
+	~CScratchLoader() { ResetParser(); }
 
 	bool ParseProject();
 	bool LoadProject(ScratchTree* Tree);
 
 private:
-	bool ParseTarget(jsmntok_t* JsnTarget, ScratchTarget& Target);
+	void ResetParser();
+	bool ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target);
+	bool ParseBlock(jsmntok_t* JsnBlock, ParsedBlock& Block);
+	bool ParseInput(jsmntok_t* JsnInputArr, ParsedInput& Input);
+	bool ParseField(jsmntok_t* JsnField, ParsedField& Field);
+	bool ParseMutation(jsmntok_t* JsnMut, ParsedMutation& Mut, bool GetArgs);
 
-	ScratchTree* m_tree = 0;
-	bool m_parsed = false;
+	// Helpers
+	bool InputSafety(ParsedBlock& Block);
+	bool FixArgs(JsnBlockMap::value_type& Pair);
+	const ParsedBlock* GetProto(const ParsedBlock& BlockInfo);
+
+	bool LoadChain(ScratchChain& Chain, const ParsedBlock& BlockInfo);
+	bool LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo);
+	bool InlineInput(const ParsedInput& Input, ScratchChain& Chain);
 
 	const char* m_json;
 	size_t m_jsonLen;
 	jsmntok_t* m_tokens;
 
-	JsnBlockMap m_map;
-	ScratchBlockMap m_loaded;
-	std::vector<ScratchTarget*> m_targets;
+	std::list<ParsedTarget> m_targets;
+	ParsedTarget* m_target;
+	ScratchTree* m_tree = 0;
+	bool m_parsed = false;
 };
-
-bool Loader_LoadProject(const char* Json, jsmntok_t* JSNProj, ScratchTree& Tree);
-
-bool Loader_LoadTarget(const char* Json, jsmntok_t* JSNTarget, ScratchTarget& Target, ScratchTree& Tree);

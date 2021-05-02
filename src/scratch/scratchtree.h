@@ -42,19 +42,20 @@ class ScratchTarget
 public:
 	ScratchTarget() {}
 	ScratchTarget(const char* Name, bool IsStage) : m_name(Name), m_isStage(IsStage) { }
+	~ScratchTarget();
 
 	inline bool IsStage() const { return m_isStage; }
 	inline const std::string Name() const { return m_name; }
 	inline std::list<ScratchVar>& Vars() { return m_vars; }
 	inline std::list<ScratchList>& Lists() { return m_lists; }
-	inline std::list<ScratchChain>& Chains() { return m_chains; }
+	inline std::list<ScratchChain*>& Chains() { return m_chains; }
 
 private:
 	bool m_isStage = false;
 	std::string m_name;
 	std::list<ScratchVar> m_vars;
 	std::list<ScratchList> m_lists;
-	std::list<ScratchChain> m_chains;
+	std::list<ScratchChain*> m_chains;
 };
 
 class ScratchValue

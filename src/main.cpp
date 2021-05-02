@@ -50,7 +50,9 @@ int main()
 		return printf("Failed to parse JSON, likely invalid.\n"), -1;
 
 	ScratchTree tree;
-	printf("Loader status: %d\n", (int)Loader_LoadProject(json.c_str(), tokens, tree));
+	CScratchLoader loader(json.c_str(), json.length());
+	printf("Parser status: %d\n", (int)loader.ParseProject());
+	printf("Loader status: %d\n", (int)loader.LoadProject(&tree));
 
 	ScratchState state;
 	for (auto& target : tree.Targets())
@@ -59,13 +61,13 @@ int main()
 		if (target.Name() != "main")
 			continue;
 
-		for (auto& chain : target.Chains())
+		for (ScratchChain* chain : target.Chains())
 		{
-			if (chain.Code().front() != event_whenflagclicked)
+			if (chain->Code().front() != event_whenflagclicked)
 				continue;
 
-			printf("\tExecuting chain %s:\n", ScratchOpcode_ToString((int)chain.Code().front()));
-			chain.Exec(state);
+			printf("\tExecuting chain %s:\n", ScratchOpcode_ToString((int)chain->Code().front()));
+			chain->Exec(state);
 			putchar('\n');
 		}
 		putchar('\n');
