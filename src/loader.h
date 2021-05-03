@@ -115,6 +115,7 @@ private:
 	bool InputSafety(ParsedBlock& Block);
 	bool FixArgs(JsnBlockMap::value_type& Pair);
 	const ParsedBlock* GetProto(const ParsedBlock& BlockInfo);
+	ScratchVar* GetVar(const std::string& Name);
 
 	bool LoadChain(ScratchChain& Chain, const ParsedBlock& BlockInfo);
 	bool LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo);

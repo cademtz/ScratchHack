@@ -10,6 +10,12 @@ inline const TVal* Loader_Find(const std::map<TKey, TVal>& Map, const TAnyKey& K
 	auto it = Map.find(Key);
 	return it == Map.end() ? 0 : &(*it).second;
 }
+template <class TKey, class TVal, class TAnyKey>
+inline TVal* Loader_Find(std::map<TKey, TVal>& Map, const TAnyKey& Key)
+{
+	auto it = Map.find(Key);
+	return it == Map.end() ? 0 : &(*it).second;
+}
 
 CScratchLoader::CScratchLoader(const char* Json, size_t JsonLen)
 	: m_json(Json), m_jsonLen(JsonLen)
@@ -94,13 +100,13 @@ bool CScratchLoader::LoadProject(ScratchTree* Tree)
 		{
 			if (pair.second.isList)
 			{
-				var_list = new ScratchList(pair.first.c_str());
+				var_list = new ScratchList(pair.second.name.c_str());
 				for (auto& val : pair.second.vals)
 					var_list->ValueList().push_back(val);
 				var = var_list;
 			}
 			else
-				var = new ScratchVar(pair.first.c_str(), pair.second.vals.front());
+				var = new ScratchVar(pair.second.name.c_str(), pair.second.vals.front());
 			pair.second.loaded = var;
 		}
 
@@ -537,10 +543,9 @@ bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo
 	union
 	{
 		ScratchChain* const* pCallee = 0;
-		const ParsedBlock* block;
 		ScratchChain* callee;
-		ScratchMethod* input;
-		ScratchChain* chain;
+		const ParsedField* field;
+		ScratchVar* var;
 	}; // blame scratch mutations for this finicky code
 
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
@@ -579,6 +584,19 @@ bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo
 			return assert(0 && "lel"), false;
 
 		Chain.AddInput(callee);
+	}
+
+	// Block wants a variable accessor
+	if (field = Loader_Find(BlockInfo.fields, "VARIABLE"))
+	{
+		if (field->vals.size() < 2)
+			return assert(0 && "VARIABLE field should have two elements in array: Name and ID"), false;
+
+		var = GetVar(field->vals[1]);
+		if (!var)
+			return false;
+
+		Chain.AddInput(new ScratchSetVar(var));
 	}
 
 	// Load ScratchInputType_Block as an input for this opcode
@@ -641,6 +659,19 @@ const ParsedBlock* CScratchLoader::GetProto(const ParsedBlock& BlockInfo)
 	return 0;
 }
 
+ScratchVar* CScratchLoader::GetVar(const std::string& Name)
+{
+	ParsedVar* var = 0;
+	for (auto& target : m_targets)
+	{
+		if (var = Loader_Find(target.varmap, Name))
+			return var->loaded;
+	}
+
+	assert(var && "Undefined reference to a Scratch variable/list in project");
+	return nullptr;
+}
+
 bool CScratchLoader::InlineInput(const ParsedInput& Input, ScratchChain& Chain)
 {
 	if (Input.type == ScratchInputType_Inline)
@@ -667,17 +698,11 @@ bool CScratchLoader::InlineInput(const ParsedInput& Input, ScratchChain& Chain)
 		case ScratchInputType_Variable:
 		case ScratchInputType_List:
 		{
-			// TODO: Maybe a safety check if a list points to a var (vice versa)?
-			const ParsedVar* var = 0;
-			for (auto& target : m_targets)
-			{
-				if (var = Loader_Find(target.varmap, Input.vals[1]))
-					break;
-			}
+			ScratchVar* var = GetVar(Input.vals[1]);
+			if (!var)
+				return false;
 
-			assert(var && "Input has undefined reference to a Scratch variable/list");
-			assert(var->loaded && "Clearly the developer's mistake...");
-			input = new ScratchPushVar(var->loaded);
+			input = new ScratchPushVar(var);
 			break;
 		}
 		default:

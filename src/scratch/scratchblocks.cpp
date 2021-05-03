@@ -34,6 +34,13 @@ int ScratchArg::Exec(ScratchState& State)
 	return 0;
 }
 
+int ScratchSetVar::Exec(ScratchState& State)
+{
+	State.ret = std::move(m_var->Value());
+	State.stack.Pop(m_var->Value());
+	return 0;
+}
+
 ScratchChain::~ScratchChain()
 {
 	//for (ScratchMethod* input : m_inputs)
@@ -63,6 +70,11 @@ int ScratchChain::Exec(ScratchState& State)
 	size_t block = 0;
 	size_t base = State.base;
 	ScratchValue temp;
+	union
+	{
+		int i;
+		ScratchValue* ref;
+	} prim;
 
 #ifdef _DEBUG
 	size_t _stacksize = State.stack.Size();
@@ -88,6 +100,32 @@ int ScratchChain::Exec(ScratchState& State)
 		case event_whenbackdropswitchesto:
 		case event_whengreaterthan:
 			break;
+
+		//case data_variable:
+		case data_setvariableto:
+			GetInput(block, 0)->Exec(State);
+			break;
+		case data_changevariableby:
+			State.stack.Pop(temp);
+			prim.ref = &((ScratchSetVar*)GetInput(block, 0))->GetVar()->Value();
+			prim.ref->Set(prim.ref->GetNumber() + temp.GetNumber());
+			break;
+		//case data_showvariable:
+		//case data_hidevariable:
+		//case data_listcontents:
+		//case data_listindexall:
+		//case data_listindexrandom:
+		//case data_addtolist:
+		//case data_deleteoflist:
+		//case data_deletealloflist:
+		//case data_insertatlist:
+		//case data_replaceitemoflist:
+		//case data_itemoflist:
+		//case data_itemnumoflist:
+		//case data_lengthoflist:
+		//case data_listcontainsitem:
+		//case data_showlist:
+		//case data_hidelist:
 
 		//case control_forever:
 		//case control_repeat:

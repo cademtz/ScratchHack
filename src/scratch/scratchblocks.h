@@ -54,7 +54,19 @@ public:
 	int Exec(ScratchState& State) override { State.stack.Push(m_var->Value()); return 0; }
 
 private:
-	const ScratchVar* m_var;
+	const ScratchVar* const m_var;
+};
+
+class ScratchSetVar : public ScratchMethod
+{
+public:
+	ScratchSetVar(ScratchVar* Var) : m_var(Var) {}
+	int Exec(ScratchState& State) override;
+
+	inline ScratchVar* GetVar() const { return m_var; }
+
+private:
+	ScratchVar* const m_var;
 };
 
 class ScratchPop : public ScratchMethod
