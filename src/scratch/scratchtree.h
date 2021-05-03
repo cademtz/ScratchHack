@@ -61,7 +61,7 @@ private:
 class ScratchValue
 {
 public:
-	ScratchValue() : m_value("0"), m_number(0), m_types(ScratchType_Number) { }
+	ScratchValue() : m_value(""), m_number(0), m_types(ScratchType_String) { }
 
 	template <class T>
 	ScratchValue(const T& Value) { Set(Value); }
@@ -78,6 +78,8 @@ public:
 	void Set(int Value);
 	inline void Set(const std::string& Value) { Set(Value.c_str()); }
 
+	bool Equals(const ScratchValue& Other);
+
 private:
 	std::string m_value;
 	double m_number;
@@ -90,6 +92,7 @@ public:
 	ScratchVar(const char* Name) : m_name(Name) { }
 	ScratchVar(const char* Name, const ScratchValue& Val) : m_name(Name), m_values({ Val }) { }
 
+	inline bool IsList() const { return m_isList; }
 	inline const std::string& Name() const { return m_name; }
 	inline const ScratchValue& Value() const { return m_values.front(); }
 	inline ScratchValue& Value() { return m_values.front(); }
@@ -109,4 +112,9 @@ class ScratchList : public ScratchVar
 public:
 	ScratchList(const char* Name) : ScratchVar(Name, true) { }
 	std::list<ScratchValue>& ValueList() { return m_values; }
+
+	bool ValueAt(size_t Index, ScratchValue& Out);
+
+	// - Returns a SCRATCH index (starts at 1), and 0 on failure
+	size_t ItemNum(const ScratchValue& Value);
 };

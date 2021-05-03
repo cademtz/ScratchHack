@@ -106,6 +106,7 @@ public:
 private:
 	void ResetParser();
 	bool ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target);
+	bool ParseVars(jsmntok_t* JsnVarArr, bool IsListsArr, ParsedTarget& Target);
 	bool ParseBlock(jsmntok_t* JsnBlock, ParsedBlock& Block);
 	bool ParseInput(jsmntok_t* JsnInputArr, ParsedInput& Input);
 	bool ParseField(jsmntok_t* JsnField, ParsedField& Field);

@@ -41,6 +41,12 @@ int ScratchSetVar::Exec(ScratchState& State)
 	return 0;
 }
 
+int ScratchSetList::Exec(ScratchState& State)
+{
+	assert(0 && "Not implemented");
+	return 0;
+}
+
 ScratchChain::~ScratchChain()
 {
 	//for (ScratchMethod* input : m_inputs)
@@ -73,8 +79,10 @@ int ScratchChain::Exec(ScratchState& State)
 	union
 	{
 		int i;
-		ScratchValue* ref;
-	} prim;
+		size_t z;
+		ScratchVar* var;
+		ScratchList* list;
+	} prim; // Some ez-access primitive types
 
 #ifdef _DEBUG
 	size_t _stacksize = State.stack.Size();
@@ -105,11 +113,13 @@ int ScratchChain::Exec(ScratchState& State)
 		case data_setvariableto:
 			GetInput(block, 0)->Exec(State);
 			break;
+
 		case data_changevariableby:
 			State.stack.Pop(temp);
-			prim.ref = &((ScratchSetVar*)GetInput(block, 0))->GetVar()->Value();
-			prim.ref->Set(prim.ref->GetNumber() + temp.GetNumber());
+			prim.var = ((ScratchSetVar*)GetInput(block, 0))->GetVar();
+			prim.var->Value().Set(prim.var->Value().GetNumber() + temp.GetNumber());
 			break;
+
 		//case data_showvariable:
 		//case data_hidevariable:
 		//case data_listcontents:
@@ -120,9 +130,26 @@ int ScratchChain::Exec(ScratchState& State)
 		//case data_deletealloflist:
 		//case data_insertatlist:
 		//case data_replaceitemoflist:
-		//case data_itemoflist:
-		//case data_itemnumoflist:
-		//case data_lengthoflist:
+		case data_itemoflist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Pop(temp);
+			if (prim.list->ValueAt((size_t)temp.GetNumber() - 1, temp))
+				State.stack.PushMove(temp);
+			else
+				State.stack.Push(ScratchValue());
+			break;
+
+		case data_itemnumoflist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Pop(temp);
+			State.stack.Push((double)prim.list->ItemNum(temp));
+			break;
+
+		case data_lengthoflist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Push((double)prim.list->ValueList().size());
+			break;
+
 		//case data_listcontainsitem:
 		//case data_showlist:
 		//case data_hidelist:
@@ -212,9 +239,8 @@ int ScratchChain::Exec(ScratchState& State)
 			break;
 
 		case operator_or:
-			GetInput(block, 0)->Exec(State);
-			if (!State.ret.GetBool())
-				GetInput(block, 1)->Exec(State);
+			BinOpHack(State, block, temp);
+			State.stack.Push(temp.GetBool() || State.ret.GetBool());
 			break;
 
 		case operator_join:
@@ -224,12 +250,11 @@ int ScratchChain::Exec(ScratchState& State)
 
 		case operator_letter_of:
 			BinOpHack(State, block, temp);
-			
-			// TODO: Looks ridiculous. Perhaps have a union to store primitive types
-			if ((int)temp.GetNumber() >= 1 && (int)temp.GetNumber() <= State.ret.GetString().length())
-				State.stack.Push(State.ret.GetString().substr((size_t)temp.GetNumber() - 1));
+			prim.i = (int)temp.GetNumber();
+			if (prim.i >= 1 && prim.i <= State.ret.GetString().length())
+				State.stack.Push(State.ret.GetString().substr((size_t)prim.i - 1));
 			else
-				State.stack.Push("");
+				State.stack.Push(ScratchValue());
 			break;
 
 		case operator_length:

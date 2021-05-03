@@ -7,6 +7,7 @@ class ScratchStack : private std::vector<ScratchValue>
 {
 public:
 	inline void Push(const ScratchValue& Value) { push_back(Value); }
+	inline void PushMove(ScratchValue& Value) { emplace_back(std::move(Value)); }
 	void Pop(ScratchValue& Out);
 	void Pop(size_t Count);
 
@@ -67,6 +68,18 @@ public:
 
 private:
 	ScratchVar* const m_var;
+};
+
+class ScratchSetList : public ScratchMethod
+{
+public:
+	ScratchSetList(ScratchList* List) : m_list(List) {}
+	int Exec(ScratchState& State) override;
+
+	inline ScratchList* GetList() const { return m_list; }
+
+private:
+	ScratchList* const m_list;
 };
 
 class ScratchPop : public ScratchMethod

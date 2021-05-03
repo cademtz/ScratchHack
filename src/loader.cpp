@@ -168,8 +168,8 @@ void CScratchLoader::ResetParser()
 
 bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 {
-	jsmntok_t* j_blocks, * j_vars;
-	jsmntok_t* j_pair, * j_arr;
+	jsmntok_t* j_blocks, * j_vars, * j_lists;
+	jsmntok_t* j_pair;
 	union // One-time use
 	{
 		ParsedVar* var;
@@ -181,23 +181,14 @@ bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 
 	if (!Json_ParseObject(m_json, JsnTarget,
 		"blocks",		&j_blocks,
-		"variables",	&j_vars))
+		"variables",	&j_vars,
+		"lists",		&j_lists))
 		return assert(0 && "Scratch JSON target missing blocks array"), false;
 
 	// Populate var map
-	j_pair = Json_StartObject(j_vars);
-	for (int i = 0; i < j_vars->size; ++i, j_pair = Json_Next(j_pair))
-	{
-		var = &Target.varmap[Json_ToString(m_json, j_pair)];
-		var->isList = false;
-		var->vals.emplace_back();
-
-		j_arr = Json_Pair_Value(j_pair);
-		if (!Json_ParseArray(m_json, j_arr, // TODO: Safety check. JSON parser will eat anything as string.
-			0, &var->name,
-			1, &var->vals[0]))
-			return assert(0 && "Bad Scratch JSON variable array"), false;
-	}
+	if (!ParseVars(j_vars, false, Target) ||
+		!ParseVars(j_lists, true, Target))
+		return false;
 
 	// Map all keys to a ParsedBlock struct
 	j_pair = Json_StartObject(j_blocks);
@@ -218,6 +209,42 @@ bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 	{
 		if (!InputSafety(pair.second) || !FixArgs(pair))
 			return false;
+	}
+
+	return true;
+}
+
+bool CScratchLoader::ParseVars(jsmntok_t* JsnVarArr, bool IsListsArr, ParsedTarget& Target)
+{
+	jsmntok_t* j_pair, * j_arr, * j_item;
+	ParsedVar*	var;
+	std::string	str;
+	JsonParser	p;
+
+	j_pair = Json_StartObject(JsnVarArr);
+	for (int i = 0; i < JsnVarArr->size; ++i, j_pair = Json_Next(j_pair))
+	{
+		var = &Target.varmap[Json_ToString(m_json, j_pair)];
+		var->isList = IsListsArr;
+		var->vals.emplace_back();
+
+		j_arr = Json_Pair_Value(j_pair);
+		if (!Json_ParseArray(m_json, j_arr,
+			0, &var->name,
+			1, &var->vals[0]))
+			return assert(0 && "Bad Scratch JSON variable array"), false;
+
+		if (IsListsArr)
+		{
+			str = std::move(var->vals.front());
+			var->vals.clear();
+			if (p.Parse(str.c_str(), str.length()) < 1) // Oh boy. I love JSON inside JSON.
+				return assert(0 && "Failed to parse JSON in Scratch JSON list"), false;
+
+			j_item = Json_StartArray(&p.tokens[0]);
+			for (int j = 0; j < p.tokens[0].size; ++j, j_item = Json_Next(j_item))
+				var->vals.push_back(Json_ToString(str.c_str(), j_item));
+		}
 	}
 
 	return true;
@@ -550,8 +577,7 @@ bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo
 
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
 		return false;
-	else if (BlockInfo.opcode == argument_reporter_boolean ||
-		BlockInfo.opcode == argument_reporter_string_number)
+	else if (BlockInfo.opcode == operator_or && BlockInfo.inputs.size() != 2)
 		printf("");
 
 	// Inline certain inputs that don't need branching logic
@@ -593,10 +619,21 @@ bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo
 			return assert(0 && "VARIABLE field should have two elements in array: Name and ID"), false;
 
 		var = GetVar(field->vals[1]);
-		if (!var)
-			return false;
+		if (!var || var->IsList())
+			return assert(0 && "Loader expected Scratch var but was given a Scratch list"), false;
 
 		Chain.AddInput(new ScratchSetVar(var));
+	}
+	else if (field = Loader_Find(BlockInfo.fields, "LIST"))
+	{
+		if (field->vals.size() < 2)
+			return assert(0 && "LIST field should have two elements in array: Name and ID"), false;
+
+		var = GetVar(field->vals[1]);
+		if (!var || !var->IsList())
+			return assert(0 && "Loader expected Scratch list but was given a Scratch var"), false;
+
+		Chain.AddInput(new ScratchSetList((ScratchList*)var));
 	}
 
 	// Load ScratchInputType_Block as an input for this opcode
@@ -696,15 +733,15 @@ bool CScratchLoader::InlineInput(const ParsedInput& Input, ScratchChain& Chain)
 		case ScratchInputType_String:
 			input = new ScratchLiteral(Input.vals[0].c_str()); break;
 		case ScratchInputType_Variable:
-		case ScratchInputType_List:
 		{
 			ScratchVar* var = GetVar(Input.vals[1]);
-			if (!var)
-				return false;
+			if (!var || var->IsList())
+				return assert(0 && "Loader expected Scratch var but was given a Scratch list"), false;
 
 			input = new ScratchPushVar(var);
 			break;
 		}
+		case ScratchInputType_List:
 		default:
 			input = new Scratch_NotImplemented();
 		}
