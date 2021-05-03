@@ -47,6 +47,16 @@ private:
 	const int m_index;
 };
 
+class ScratchPushVar : public ScratchMethod
+{
+public:
+	ScratchPushVar(const ScratchVar* Var) : m_var(Var) {}
+	int Exec(ScratchState& State) override { State.stack.Push(m_var->Value()); return 0; }
+
+private:
+	const ScratchVar* m_var;
+};
+
 class ScratchPop : public ScratchMethod
 {
 public:
@@ -89,9 +99,6 @@ private:
 	{
 		State.stack.Pop(First);
 		State.stack.Pop(State.ret);
-		//GetInput(Block, 0)->Exec(State);
-		//First = State.ret;
-		//GetInput(Block, 1)->Exec(State);
 	}
 
 	std::vector<EScratchOpcode> m_ops;

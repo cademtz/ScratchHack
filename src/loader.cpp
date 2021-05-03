@@ -36,6 +36,7 @@ bool CScratchLoader::ParseProject()
 	if (!targets || !(item = Json_StartArray(targets)))
 		return assert(0 && "Couldn't find targets in Scratch JSON project"), false;
 
+	// Populate the list and sort the stage FIRST (contains global vars, must parse & load first)
 	for (int i = 0; i < targets->size; ++i, item = Json_Next(item))
 	{
 		if (!Json_ParseObject(m_json, item,
@@ -43,15 +44,28 @@ bool CScratchLoader::ParseProject()
 			"isStage",	&isStage))
 			return assert(0 && "Couldn't parse Scratch JSON target"), false;
 
-		m_targets.emplace_back();
-		m_target = &m_targets.back();
+		if (isStage)
+		{
+			m_targets.emplace_front();
+			m_target = &m_targets.front();
+		}
+		else
+		{
+			m_targets.emplace_back();
+			m_target = &m_targets.back();
+		}
+
 		m_target->name = name;
 		m_target->isStage = isStage;
-		if (!ParseTarget(item, m_targets.back()))
-		{
-			m_targets.pop_back();
+	}
+
+	// Re-iterate and load all other targets
+	item = Json_StartArray(targets);
+	for (auto it = m_targets.begin(); it != m_targets.end(); ++it, item = Json_Next(item))
+	{
+		m_target = &(*it);
+		if (!ParseTarget(item, *m_target))
 			return false;
-		}
 	}
 
 	m_parsed = true;
@@ -61,6 +75,11 @@ bool CScratchLoader::ParseProject()
 bool CScratchLoader::LoadProject(ScratchTree* Tree)
 {
 	ScratchTarget* target;
+	union
+	{
+		ScratchVar* var;
+		ScratchList* var_list;
+	};
 
 	if (!m_parsed)
 		return assert(0 && "Project was not parsed or failed to parse"), false;
@@ -69,6 +88,21 @@ bool CScratchLoader::LoadProject(ScratchTree* Tree)
 	for (ParsedTarget& parsed : m_targets)
 	{
 		m_target = &parsed;
+
+		// Initialize variables
+		for (auto& pair : parsed.varmap)
+		{
+			if (pair.second.isList)
+			{
+				var_list = new ScratchList(pair.first.c_str());
+				for (auto& val : pair.second.vals)
+					var_list->ValueList().push_back(val);
+				var = var_list;
+			}
+			else
+				var = new ScratchVar(pair.first.c_str(), pair.second.vals.front());
+			pair.second.loaded = var;
+		}
 
 		// Populate loaded map
 		for (auto& pair : parsed.map)
@@ -93,6 +127,15 @@ bool CScratchLoader::LoadProject(ScratchTree* Tree)
 	{
 		Tree->Targets().emplace_back(parsed.name.c_str(), parsed.isStage);
 		target = &Tree->Targets().back();
+
+		for (auto& pair : parsed.varmap)
+		{
+			if (pair.second.isList)
+				target->Lists().push_back((ScratchList*)pair.second.loaded);
+			else
+				target->Vars().push_back(pair.second.loaded);
+		}
+
 		for (auto& pair : parsed.loaded)
 			target->Chains().push_back(pair.second);
 	}
@@ -108,8 +151,11 @@ void CScratchLoader::ResetParser()
 
 	for (ParsedTarget& target : m_targets)
 	{
+		// Was left behind if loader failed
 		for (auto& pair : target.loaded)
-			delete pair.second; // Was left behind if loader failed
+			delete pair.second;
+		for (auto& pair : target.varmap)
+			delete pair.second.loaded;
 	}
 	m_targets.clear();
 }
@@ -137,10 +183,13 @@ bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 	for (int i = 0; i < j_vars->size; ++i, j_pair = Json_Next(j_pair))
 	{
 		var = &Target.varmap[Json_ToString(m_json, j_pair)];
+		var->isList = false;
+		var->vals.emplace_back();
+
 		j_arr = Json_Pair_Value(j_pair);
-		if (!Json_ParseArray(m_json, j_arr,
+		if (!Json_ParseArray(m_json, j_arr, // TODO: Safety check. JSON parser will eat anything as string.
 			0, &var->name,
-			1, &var->deefault))
+			1, &var->vals[0]))
 			return assert(0 && "Bad Scratch JSON variable array"), false;
 	}
 
@@ -615,6 +664,22 @@ bool CScratchLoader::InlineInput(const ParsedInput& Input, ScratchChain& Chain)
 		case ScratchInputType_Color:
 		case ScratchInputType_String:
 			input = new ScratchLiteral(Input.vals[0].c_str()); break;
+		case ScratchInputType_Variable:
+		case ScratchInputType_List:
+		{
+			// TODO: Maybe a safety check if a list points to a var (vice versa)?
+			const ParsedVar* var = 0;
+			for (auto& target : m_targets)
+			{
+				if (var = Loader_Find(target.varmap, Input.vals[1]))
+					break;
+			}
+
+			assert(var && "Input has undefined reference to a Scratch variable/list");
+			assert(var->loaded && "Clearly the developer's mistake...");
+			input = new ScratchPushVar(var->loaded);
+			break;
+		}
 		default:
 			input = new Scratch_NotImplemented();
 		}

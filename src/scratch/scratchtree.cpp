@@ -14,6 +14,10 @@ ScratchTarget::~ScratchTarget()
 {
 	for (ScratchChain* chain : m_chains)
 		delete chain;
+	for (ScratchVar* var : m_vars)
+		delete var;
+	for (ScratchList* list : m_lists)
+		delete list;
 }
 
 void ScratchValue::Set(const char* Value)

@@ -78,8 +78,12 @@ public:
 
 bool Json_StrictToString(const char* Json, jsmntok_t* Tk, std::string* out_Str);
 
-inline std::string Json_ToString(const char* Json, jsmntok_t* Tk) {
-	return std::string(Json + Tk->start, Json_Strlen(Tk));
+inline std::string Json_ToString(const char* Json, jsmntok_t* Tk)
+{
+	std::string result;
+	if (Tk->type != JSMN_STRING || !Json_StrictToString(Json, Tk, &result))
+		result = std::string(Json + Tk->start, Json_Strlen(Tk));
+	return result;
 }
 
 inline bool Json_GetValue(const char* Json, jsmntok_t* Tk, jsmntok_t** out_Tk) {
@@ -102,7 +106,7 @@ inline bool Json_GetValue(const char* Json, jsmntok_t* Tk, std::string* out_Str)
 {
 	if (Tk->type == JSMN_STRING)
 		return Json_StrictToString(Json, Tk, out_Str);
-	else if (Tk->type != JSMN_PRIMITIVE || Json[Tk->start] != 'n') // Fill string unless Tk is a JSON null
+	else if (!Json_IsNull(Json, Tk)) // Fill string unless Tk is a JSON null
 	{
 		out_Str->clear();
 		*out_Str = Json_ToString(Json, Tk);

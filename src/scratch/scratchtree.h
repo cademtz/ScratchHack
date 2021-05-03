@@ -46,15 +46,15 @@ public:
 
 	inline bool IsStage() const { return m_isStage; }
 	inline const std::string Name() const { return m_name; }
-	inline std::list<ScratchVar>& Vars() { return m_vars; }
-	inline std::list<ScratchList>& Lists() { return m_lists; }
+	inline std::list<ScratchVar*>& Vars() { return m_vars; }
+	inline std::list<ScratchList*>& Lists() { return m_lists; }
 	inline std::list<ScratchChain*>& Chains() { return m_chains; }
 
 private:
 	bool m_isStage = false;
 	std::string m_name;
-	std::list<ScratchVar> m_vars;
-	std::list<ScratchList> m_lists;
+	std::list<ScratchVar*> m_vars;
+	std::list<ScratchList*> m_lists;
 	std::list<ScratchChain*> m_chains;
 };
 
@@ -87,25 +87,26 @@ private:
 class ScratchVar
 {
 public:
-	ScratchVar(const char* Name, ScratchValue Value) : m_name(Name), m_value(Value) { }
+	ScratchVar(const char* Name) : m_name(Name) { }
+	ScratchVar(const char* Name, const ScratchValue& Val) : m_name(Name), m_values({ Val }) { }
 
 	inline const std::string& Name() const { return m_name; }
-	inline ScratchValue& Value() { return m_value; }
+	inline const ScratchValue& Value() const { return m_values.front(); }
+	inline ScratchValue& Value() { return m_values.front(); }
+
+protected:
+	ScratchVar(const char* Name, bool IsList) : m_name(Name), m_isList(IsList) { }
+
+	std::list<ScratchValue> m_values;
 
 private:
 	std::string m_name;
-	ScratchValue m_value;
+	const bool m_isList = false;
 };
 
-class ScratchList
+class ScratchList : public ScratchVar
 {
 public:
-	ScratchList(const char* Name) : m_name(Name) { }
-
-	inline const std::string& Name() const { return m_name; }
-	inline std::list<ScratchValue>& Values() { return m_values; }
-
-private:
-	std::string m_name;
-	std::list<ScratchValue> m_values;
+	ScratchList(const char* Name) : ScratchVar(Name, true) { }
+	std::list<ScratchValue>& ValueList() { return m_values; }
 };

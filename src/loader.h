@@ -52,7 +52,9 @@ struct ParsedArg
 struct ParsedVar
 {
 	std::string name;
-	std::string deefault;
+	std::vector<std::string> vals;
+	ScratchVar* loaded;
+	bool isList;
 };
 
 struct ParsedMutation
