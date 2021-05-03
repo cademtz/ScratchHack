@@ -49,11 +49,16 @@ struct ParsedArg
 	std::string id;
 	std::string deefault;
 };
+struct ParsedVar
+{
+	std::string name;
+	std::string deefault;
+};
 
 struct ParsedMutation
 {
 	std::string proccode;
-	std::map<std::string, ParsedArg> argmap; // Maps arg name to coresponding arg setter key
+	std::map<std::string, ParsedArg> argmap; // Maps arg's name to corresponding setter key
 	bool warp;
 };
 
@@ -82,6 +87,7 @@ struct ParsedTarget
 {
 	JsnBlockMap map;
 	ScratchBlockMap loaded;
+	std::map<std::string, ParsedVar> varmap; // Maps key to a var
 	std::string name;
 	bool isStage;
 };

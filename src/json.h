@@ -120,4 +120,36 @@ inline bool Json_ParseObject(const char* Json, jsmntok_t* Obj, const char* Key, 
 	return false;
 }
 
+inline bool _Json_ParseArray_SizeCheck(int Size) { return true; }
+template <class T, class ...TArgs>
+inline bool _Json_ParseArray_SizeCheck(int Size, int Index, T Unused, TArgs... Moar) {
+	return (Index < Size) && _Json_ParseArray_SizeCheck(Size, Moar...);
+}
+
+inline bool _Json_ParseArray(const char* Json, jsmntok_t* Item, int CurIndex) { return true; }
+template <class T, class ...TArgs>
+inline bool _Json_ParseArray(const char* Json, jsmntok_t* Item, int CurIndex, int Index, T Value, TArgs... KeyValues)
+{
+	if (!_Json_ParseArray(Json, Item, CurIndex, KeyValues...))
+		return false;
+	if (CurIndex == Index)
+		return Json_GetValue(Json, Item, Value);
+	return true;
+}
+
+template<class T, class ...TArgs>
+inline bool Json_ParseArray(const char* Json, jsmntok_t* Arr, int Index, T Value, TArgs... KeyValues)
+{
+	if (!_Json_ParseArray_SizeCheck(Arr->size, Index, Value, KeyValues...))
+		return false;
+
+	jsmntok_t* pos = Json_StartArray(Arr);
+	for (int i = 0; i < Arr->size; ++i, pos = Json_Next(pos))
+	{
+		if (!_Json_ParseArray(Json, pos, i, Index, Value, KeyValues...))
+			return false;
+	}
+	return true;
+}
+
 #endif

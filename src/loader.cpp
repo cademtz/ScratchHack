@@ -116,18 +116,33 @@ void CScratchLoader::ResetParser()
 
 bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 {
-	jsmntok_t* j_blocks, * j_pair;
+	jsmntok_t* j_blocks, * j_vars;
+	jsmntok_t* j_pair, * j_arr;
 	union // One-time use
 	{
+		ParsedVar* var;
 		ParsedBlock* block;
 		ScratchChain* chain;
 	};
-	std::string		name;
 
 	m_target = &Target;
 
-	if (!Json_ParseObject(m_json, JsnTarget, "blocks", &j_blocks))
+	if (!Json_ParseObject(m_json, JsnTarget,
+		"blocks",		&j_blocks,
+		"variables",	&j_vars))
 		return assert(0 && "Scratch JSON target missing blocks array"), false;
+
+	// Populate var map
+	j_pair = Json_StartObject(j_vars);
+	for (int i = 0; i < j_vars->size; ++i, j_pair = Json_Next(j_pair))
+	{
+		var = &Target.varmap[Json_ToString(m_json, j_pair)];
+		j_arr = Json_Pair_Value(j_pair);
+		if (!Json_ParseArray(m_json, j_arr,
+			0, &var->name,
+			1, &var->deefault))
+			return assert(0 && "Bad Scratch JSON variable array"), false;
+	}
 
 	// Map all keys to a ParsedBlock struct
 	j_pair = Json_StartObject(j_blocks);
@@ -391,14 +406,20 @@ bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 
 	if (block->opcode == procedures_call)
 	{
+		// Rename inputs from arg IDs to arg names
 		for (auto& arg_pair : proto->mutation.argmap)
 		{
 			auto it = block->inputs.find(arg_pair.second.id);
-			if (it == block->inputs.end())
-				return assert(0 && "Procedure call is missing some args"), false;
-
-			block->inputs.emplace(arg_pair.first, std::move((*it).second));
-			block->inputs.erase(it); // Associative container inserts don't invalidate iterators
+			if (it == block->inputs.end()) // Procedure call is missing some args
+			{
+				input = &block->inputs[arg_pair.first];
+				input->type = ScratchInputType_Null; // Insert arg with temp value (will resolved to default)
+			}
+			else
+			{
+				block->inputs.emplace(arg_pair.first, std::move((*it).second));
+				block->inputs.erase(it); // Associative container inserts don't invalidate iterators
+			}
 		}
 
 		for (auto it = block->inputs.begin(); it != block->inputs.end();)
