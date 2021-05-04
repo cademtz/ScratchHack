@@ -93,10 +93,35 @@ bool ScratchList::ValueAt(size_t Index, ScratchValue& Out)
 	return true;
 }
 
+bool ScratchList::Insert(size_t Index, const ScratchValue& Value)
+{
+	if (Index > m_values.size())
+		return false;
+
+	m_values.insert(m_values.begin() + Index, Value);
+	return true;
+}
+
+bool ScratchList::Replace(size_t Index, const ScratchValue& Value)
+{
+	if (Index >= m_values.size())
+		return false;
+
+	m_values[Index] = Value;
+	return true;
+}
+
+bool ScratchList::Delete(size_t Index)
+{
+	if (Index >= m_values.size())
+		return false;
+	m_values.erase(m_values.begin() + Index);
+	return true;
+}
+
 size_t ScratchList::ItemNum(const ScratchValue& Value)
 {
 	size_t num = 0;
-
 	for (auto it = m_values.begin(); it != m_values.end(); ++it, ++num)
 	{
 		if ((*it).Equals(Value))

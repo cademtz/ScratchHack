@@ -80,6 +80,7 @@ int ScratchChain::Exec(ScratchState& State)
 	{
 		int i;
 		size_t z;
+		double d;
 		ScratchVar* var;
 		ScratchList* list;
 	} prim; // Some ez-access primitive types
@@ -125,11 +126,34 @@ int ScratchChain::Exec(ScratchState& State)
 		//case data_listcontents:
 		//case data_listindexall:
 		//case data_listindexrandom:
-		//case data_addtolist:
-		//case data_deleteoflist:
-		//case data_deletealloflist:
-		//case data_insertatlist:
-		//case data_replaceitemoflist:
+		case data_addtolist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Pop(temp);
+			prim.list->Add(temp);
+			break;
+
+		case data_deleteoflist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Pop(temp);
+			prim.list->Delete((size_t)temp.GetNumber() - 1);
+			break;
+
+		case data_deletealloflist:
+			((ScratchSetList*)GetInput(block, 0))->GetList()->Clear();
+			break;
+
+		case data_insertatlist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			BinOpHack(State, block, temp);
+			prim.list->Insert((size_t)temp.GetNumber() - 1, State.ret);
+			break;
+
+		case data_replaceitemoflist:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			BinOpHack(State, block, temp);
+			prim.list->Replace((size_t)temp.GetNumber() - 1, State.ret);
+			break;
+
 		case data_itemoflist:
 			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
 			State.stack.Pop(temp);
@@ -150,7 +174,12 @@ int ScratchChain::Exec(ScratchState& State)
 			State.stack.Push((double)prim.list->ValueList().size());
 			break;
 
-		//case data_listcontainsitem:
+		case data_listcontainsitem:
+			prim.list = ((ScratchSetList*)GetInput(block, 0))->GetList();
+			State.stack.Pop(temp);
+			State.stack.Push(prim.list->ItemNum(temp) != 0);
+			break;
+
 		//case data_showlist:
 		//case data_hidelist:
 
@@ -217,7 +246,9 @@ int ScratchChain::Exec(ScratchState& State)
 			State.stack.Push(temp.GetNumber() / State.ret.GetNumber());
 			break;
 
-		//case operator_random:
+		case operator_random:
+			BinOpHack(State, block, temp);
+
 		case operator_lt:
 			BinOpHack(State, block, temp);
 			State.stack.Push(temp.GetNumber() < State.ret.GetNumber());
@@ -262,10 +293,14 @@ int ScratchChain::Exec(ScratchState& State)
 			State.stack.Push((double)State.ret.GetString().length());
 			break;
 
-		//case operator_contains:
+		case operator_contains:
+			BinOpHack(State, block, temp);
+			State.stack.Push(temp.GetString().find(State.ret.GetString()) != std::string::npos);
+			break;
+
 		case operator_mod:
 			BinOpHack(State, block, temp);
-			State.stack.Push((int)temp.GetNumber() % (int)State.ret.GetNumber());
+			State.stack.Push(fmod(temp.GetNumber(), State.ret.GetNumber()));
 			break;
 
 		case operator_round:

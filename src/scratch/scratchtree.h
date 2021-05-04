@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include <list>
+#include <deque>
 #include <string>
 #include <stdint.h>
 #include "scratchopcodes.h"
@@ -61,7 +62,7 @@ private:
 class ScratchValue
 {
 public:
-	ScratchValue() : m_value(""), m_number(0), m_types(ScratchType_String) { }
+	ScratchValue() : m_number(0), m_types(ScratchType_String) { }
 
 	template <class T>
 	ScratchValue(const T& Value) { Set(Value); }
@@ -100,7 +101,7 @@ public:
 protected:
 	ScratchVar(const char* Name, bool IsList) : m_name(Name), m_isList(IsList) { }
 
-	std::list<ScratchValue> m_values;
+	std::deque<ScratchValue> m_values;
 
 private:
 	std::string m_name;
@@ -111,9 +112,14 @@ class ScratchList : public ScratchVar
 {
 public:
 	ScratchList(const char* Name) : ScratchVar(Name, true) { }
-	std::list<ScratchValue>& ValueList() { return m_values; }
+	std::deque<ScratchValue>& ValueList() { return m_values; }
 
 	bool ValueAt(size_t Index, ScratchValue& Out);
+	bool Insert(size_t Index, const ScratchValue& Value);
+	bool Replace(size_t Index, const ScratchValue& Value);
+	bool Delete(size_t Index);
+	inline void Add(const ScratchValue& Value) { m_values.push_back(Value); }
+	inline void Clear() { m_values.clear(); }
 
 	// - Returns a SCRATCH index (starts at 1), and 0 on failure
 	size_t ItemNum(const ScratchValue& Value);
