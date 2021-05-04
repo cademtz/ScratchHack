@@ -2,6 +2,8 @@
 #include <urlmon.h>
 #include <atlbase.h>
 #include <string>
+#include <time.h>
+#include <stdlib.h>
 #include "json.h"
 #include "loader.h"
 #include "scratch/scratchopcodes.h"
@@ -55,6 +57,7 @@ int main()
 	printf("Loader status: %d\n", (int)loader.LoadProject(&tree));
 
 	ScratchState state;
+	srand((unsigned)time(0)); // Get that nice randomness going
 	for (auto& target : tree.Targets())
 	{
 		printf("Target \"%s\":\n", target.Name().c_str());

@@ -248,6 +248,19 @@ int ScratchChain::Exec(ScratchState& State)
 
 		case operator_random:
 			BinOpHack(State, block, temp);
+			//prim.d = min(temp.GetNumber(), State.ret.GetNumber()); // Offset
+			if (floor(temp.GetNumber()) == temp.GetNumber() &&
+				floor(State.ret.GetNumber()) == State.ret.GetNumber())
+				prim.d = rand() % (int)abs((int)temp.GetNumber() - (int)State.ret.GetNumber());
+			else
+			{
+				// Pick a random with up to 2 decimals
+				prim.d = rand() % (int)(fabs(temp.GetNumber() - State.ret.GetNumber()) * 100);
+				prim.d /= 100;
+			}
+
+			State.stack.Push(prim.d + min(temp.GetNumber(), State.ret.GetNumber()));
+			break;
 
 		case operator_lt:
 			BinOpHack(State, block, temp);

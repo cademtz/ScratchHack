@@ -183,7 +183,7 @@ bool CScratchLoader::ParseTarget(jsmntok_t* JsnTarget, ParsedTarget& Target)
 		"blocks",		&j_blocks,
 		"variables",	&j_vars,
 		"lists",		&j_lists))
-		return assert(0 && "Scratch JSON target missing blocks array"), false;
+		return assert(0 && "Scratch JSON target missing required members"), false;
 
 	// Populate var map
 	if (!ParseVars(j_vars, false, Target) ||
@@ -495,7 +495,7 @@ bool CScratchLoader::FixArgs(JsnBlockMap::value_type& Pair)
 			if (it == block->inputs.end()) // Procedure call is missing some args
 			{
 				input = &block->inputs[arg_pair.first];
-				input->type = ScratchInputType_Null; // Insert arg with temp value (will resolved to default)
+				input->type = ScratchInputType_Null; // Insert arg with temp value (will be resolved to default)
 			}
 			else
 			{
@@ -565,20 +565,17 @@ bool CScratchLoader::LoadChain(ScratchChain& Chain, const ParsedBlock& BlockInfo
 
 bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo)
 {
-	const ParsedBlock* l_callee = 0;
 	const ParsedBlock* proto = 0;
 	union
 	{
-		ScratchChain* const* pCallee = 0;
-		ScratchChain* callee;
+		const ParsedBlock* l_callee = 0;
 		const ParsedField* field;
+		ScratchChain* callee;
 		ScratchVar* var;
 	}; // blame scratch mutations for this finicky code
 
 	if (BlockInfo.opcode == ScratchOpcode_unknown)
 		return false;
-	else if (BlockInfo.opcode == operator_or && BlockInfo.inputs.size() != 2)
-		printf("");
 
 	// Inline certain inputs that don't need branching logic
 	for (auto it = BlockInfo.inputs.rbegin(); it != BlockInfo.inputs.rend(); ++it)
@@ -604,11 +601,7 @@ bool CScratchLoader::LoadBlock(ScratchChain& Chain, const ParsedBlock& BlockInfo
 			l_callee->opcode != procedures_definition)
 			return false;
 
-		if (pCallee = Loader_Find(m_target->loaded, (ParsedBlock*)l_callee))
-			callee = *pCallee;
-		else // Not yet loaded. Load it ourselves.
-			return assert(0 && "lel"), false;
-
+		callee = *Loader_Find(m_target->loaded, (ParsedBlock*)l_callee);
 		Chain.AddInput(callee);
 	}
 
@@ -687,6 +680,8 @@ const ParsedBlock* CScratchLoader::GetProto(const ParsedBlock& BlockInfo)
 	else if (BlockInfo.opcode == argument_reporter_boolean ||
 		BlockInfo.opcode == argument_reporter_string_number)
 	{
+		// Get the top block in the chain (Should always be a definition block)
+		// TODO: Do I check if this gets used outside a proc? Probably should...
 		for (block = BlockInfo.parent; block && block->parent; block = block->parent);
 
 		if (block && block->opcode == procedures_definition)
